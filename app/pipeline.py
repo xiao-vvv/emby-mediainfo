@@ -70,6 +70,9 @@ class Slots:
     def busy(self):
         with self.c: return self.n
 
+PARK = '已刷新,等 Emby 消化(不重复刷新)'     # feeding 里「刷新已发出、等 Emby 轮到」的标记
+PARK_MAX = 6 * 3600                            # 停这么久还没消化就放回去重发一次
+
 class Pipeline:
     def __init__(self):
         self.client = None; self.stop = False
@@ -205,7 +208,7 @@ class Pipeline:
                     #   裸写会把人家正在飞的状态覆盖掉
                     if n and n > 0:
                         if db.x("update items set status='done', fed_at=?, error=null, updated_at=? where id=? and status='feeding'", (now, now, i)): self._drop_sidecar(i); done += 1
-                    elif db.x("update items set status='extracted', updated_at=? where id=? and status='feeding'", (now, i)): back += 1
+                    elif db.x("update items set status='extracted', updated_at=? where id=? and status='feeding' and (error is null or error <> ?)", (now, i, PARK)): back += 1
                     if has_p and db.x("update items set thumb='done' where id=? and thumb in ('pending','captured')", (i,)):
                         db.x('update items set backdrop=3 where id=? and backdrop=1', (i,))   # 不收尾的话「背景图待生成」这个数字永远降不下去
                         try: os.remove(os.path.join(OUT_DIR, f'{i}-thumb.jpg'))   # 和 _feed_once 一样要删,否则暂存目录只涨不落
@@ -221,7 +224,7 @@ class Pipeline:
             try:
                 for c in range(0, len(ids), 900):
                     part = ids[c:c+900]
-                    db.x(f"update items set status='extracted', updated_at=? where status='feeding' and id in ({','.join('?'*len(part))})", (time.time(), *part))
+                    db.x(f"update items set status='extracted', updated_at=? where status='feeding' and (error is null or error <> ?) and id in ({','.join('?'*len(part))})", (time.time(), PARK, *part))
             finally: self.feed_lock.release()
             db.log('error', f'入库核实失败,这批 {len(ids)} 条回退重发: {str(e)[:200]}')
     # ---------- 提取 ----------
@@ -593,6 +596,10 @@ class Pipeline:
                                                 " and status in ('done','skipped','extracted','feeding','failed')"
                                                 " and (thumb_err is null or updated_at < ?) limit 1", (THUMB_MAX(), time.time() - 1800)))
                 # 攒够一批 / 彻底空闲把尾巴发掉 / 兜底间隔;只缺图的也算数,否则提取一直满速时它们永远挤不进批次
+                hold = getattr(self, 'feed_hold_until', 0)      # Emby 吃不进刷新时的退避;手动「立即入库」不看它
+                if hold > time.time():
+                    self.state['phase_feed'] = f'hold {int(hold - time.time())}s'
+                    time.sleep(5); continue
                 if (n + tn) and (n + tn >= fb or idle or time.time() - last > float(db.setting('feed_interval'))) and not db.setting('paused'):
                     if self.feed_once() is not False: last = time.time()
                 time.sleep(5)
@@ -629,7 +636,7 @@ class Pipeline:
                     #    最后还把死因写成「Emby 仍未认下这张图」)
                     if not r['strm'].startswith(pre + '/'):
                         # ⚠️这是配置错,不是这一条的错:全库都会命中,判死就等于一口气把十几万张缩略图永久毁掉
-                        #   (A1-b 那条「前缀填错 5874 条/秒烧成 failed」就是这么来的)。只跳过 + 限流打一条日志
+                        #   (曾经有一次前缀填错,每秒几千条地烧成 failed)。只跳过 + 限流打一条日志
                         self.note_prefix_mismatch(pre, r['strm'])
                         return False
                     rel = 'strm' + r['strm'][len(pre):][:-len('.strm')] + '-thumb.jpg'   # 剧集:-thumb.jpg 放 strm 旁边,Refresh 时 Emby 自己认
@@ -702,6 +709,16 @@ class Pipeline:
         for i, err in (res.get('failed') or {}).items():
             i = int(i)
             if i in fed: db.update_item(i, status='failed', error='喂回: ' + str(err))
+        # 探路发现 Emby 吃不进刷新 → 退避,别立刻拿同样的一批再撞一次。
+        # 🔴退避是这次修复的另一半:光有探路只能把「13 分钟换零产出」缩短到「75 秒换零产出」,
+        #   但循环还在 —— 每隔几秒就重来一遍。退避才是真正把这段时间还给提取线程的东西。
+        if res.get('busy'):
+            self.feed_hold = min(1800, (getattr(self, 'feed_hold', 0) or 150) * 2)
+            self.feed_hold_until = time.time() + self.feed_hold
+            db.log('warn', f"{res.get('note') or 'Emby 暂时吃不进刷新'},{self.feed_hold // 60} 分钟后再试")
+        elif res.get('done') or res.get('skipped'):
+            self.feed_hold = 0; self.feed_hold_until = 0      # 只要有产出就把退避清零,别让它一直涨着
+
         back = [int(i) for i in res.get('unverified', []) if int(i) in fed]
         if back:
             # 🔴整批(或几乎整批)都没核实上 = Emby 那边在忙(扫描媒体库/刷演员这类计划任务一跑就是几小时),
@@ -713,10 +730,12 @@ class Pipeline:
             for c in range(0, len(back), 900):
                 part = back[c:c+900]
                 if systemic:
-                    db.x(f"update items set status='extracted', error='Emby 正忙,刷新暂未生效,待重发' where id in ({','.join('?'*len(part))}) and status='feeding'", part)
+                    # 🔴不要退回 extracted。退回 = 下一批把同样这 1800 条原样再刷一遍,
+                    #   而 Emby 的刷新队列本来就堵着 —— 等于往堵死的队列里再灌 1800 条。就地停泊,等人来认领。
+                    db.x(f"update items set error='{PARK}', fed_at=coalesce(fed_at, ?), updated_at=? where id in ({','.join('?'*len(part))}) and status='feeding'", (now, now, *part))
                 else:
                     db.x(f"update items set attempts=attempts+1, status=case when attempts+1>=? then 'failed' else 'extracted' end, error=case when attempts+1>=? then '喂回: 多次刷新后 Emby 仍无流记录(可能被插件判为异常媒体信息)' else '刷新后暂未见流记录,待重发' end where id in ({','.join('?'*len(part))}) and status='feeding'", (mr, mr, *part))
-            if systemic: db.log('warn', f"{len(back)}/{len(fed)} 条刷新后都没见流记录,判定是 Emby 那边忙(不计次数),整批下次重发")
+            if systemic: db.log('warn', f"{len(back)}/{len(fed)} 条刷新后都没见流记录 —— 刷新已发出,Emby 还没轮到处理。就地等待,不重复刷新")
             else: db.log('warn', f"{len(back)} 条刷新后暂未见流记录,回退下次重发(超过 {mr} 次才判失败)")
         for i in res.get('thumb_done', []):
             db.x("update items set thumb='done', thumb_err=null, thumb_attempts=0 where id=?", (i,))
@@ -753,6 +772,41 @@ class Pipeline:
                        + f" 用时 {res.get('seconds')}s"
                        + (f" 延迟 {(res.get('lat') or [0])[-1]:.2f}s" if res.get('lat') else ''))   # 原来是直接打整个列表,日志里会出现 [0.27906153560307834] 这种一长串
         self.state['phase_feed'] = 'idle'
+    def reverify_parked(self):
+        """认领「刷新已发出、还在等 Emby 消化」的条目;绝不重复刷新。
+
+        🔴这条路存在的理由(2026-09-18 在生产上量出来的):
+          Emby 的 Refresh 是异步排队的,而它的队列常年被**它自己**的入库刮削占着 ——
+          把我们整条流水线停掉 15 分钟,它照样每 20 秒发 350 个 TMDB 请求(大头是
+          `person/N`,神医的人物增强)、RefreshItem 一条都完不成。
+          我们发出去的刷新平均要 40 分钟才轮得到,而一批的复核窗口只有十几分钟。
+          老做法是「等不到就整批退回 extracted、下一轮原样再刷一遍」——
+          那是往已经堵死的队列里再灌 1800 条,48 小时实测有 8.2 小时是这么烧掉的
+          (39/207 批颗粒无收,而且零产出的批次比有产出的还慢一倍)。"""
+        now = time.time()
+        rows = db.q("select id, fed_at from items where status='feeding' and error=? and updated_at < ? order by fed_at limit 3000",
+                    (PARK, now - 240))
+        if not rows: return
+        ids = [r['id'] for r in rows]; at = {r['id']: (r['fed_at'] or now) for r in rows}
+        done = aged = unknown = 0
+        try:
+            for c in range(0, len(ids), 1000):
+                part = ids[c:c + 1000]; st = get_host().verify(part)
+                for i in part:
+                    n = (st.get(str(i)) or [-1])[0]
+                    if n is None or n < 0: unknown += 1; continue      # 查不出来 ≠ 没入库
+                    if n > 0:
+                        if db.x("update items set status='done', fed_at=?, error=null, updated_at=? where id=? and status='feeding'", (now, now, i)):
+                            self._drop_sidecar(i); done += 1
+                    elif now - at[i] > PARK_MAX:
+                        # 等了这么久还没有 = 这次刷新多半是真丢了(Emby 重启过/请求没排上),放回去重发一次。
+                        # 计 sweeps 是为了封顶:别让某一条在「停泊↔重发」之间无限来回
+                        if db.x("update items set status='extracted', sweeps=sweeps+1, error='等待超时,重新发一次刷新', updated_at=? where id=? and status='feeding' and sweeps < 5", (now, i)): aged += 1
+            if done or aged:
+                db.log('info', f'停泊认领: {done} 条 Emby 已消化改为完成, {aged} 条等太久放回重发, 共查 {len(ids)}'
+                               + (f',{unknown} 条查不到状态' if unknown else ''))
+        except Exception as e: db.log('error', f'停泊认领异常: {str(e)[:200]}')
+
     def reverify_failed(self):
         """把「喂回后仍无流记录」的失败条目重新向 Emby 核实:有流→done,没流→回到 extracted 重发"""
         ids = [r['id'] for r in db.q("select id from items where status='failed' and error like '喂回:%'")]
@@ -800,13 +854,19 @@ class Pipeline:
                 # 卡在 feeding 的(落库中途异常/进程被杀):没有入库在跑才动,回到 extracted 等重发
                 if self.feed_lock.acquire(blocking=False):
                     try:
-                        m = db.x("update items set status='extracted' where status='feeding' and updated_at < ?", (time.time() - 10800,))
+                        # ⚠️排除停泊的:它们是「刷新已发出、等 Emby 消化」,由 reverify_parked 按 PARK_MAX 管;
+                        #   被这个看门狗扫回 extracted 的话,下一批又会把它们原样再刷一遍 —— 正是要消灭的那个循环
+                        m = db.x("update items set status='extracted' where status='feeding' and updated_at < ? and (error is null or error <> ?)", (time.time() - 10800, PARK))
                         m += db.x("update items set thumb='captured' where thumb='feeding' and updated_at < ?", (time.time() - 10800,))
                         if m: db.log('warn', f'复位卡住的入库中条目 {m} 条')
                     finally: self.feed_lock.release()
                 # 「喂回后 Emby 仍无流记录」这一类要能自愈:成因几乎都是 Emby 当时在跑扫描/刷演员这类计划任务,
                 # 刷新排队没来得及生效。事后去核实一遍,有流的直接标完成、没有的放回重发 ——
                 # 实测一次「扫描媒体库 + 刷新中文演员」同时跑就打出 500 条这种失败,而事后抽查 60/60 其实都在 Emby 里
+                # 停泊的条目要有人定期去认领,否则它们就真的停在那儿了。批量查很便宜,可以查得勤
+                if time.time() - getattr(self, '_last_park', 0) > 480:
+                    self._last_park = time.time()
+                    threading.Thread(target=self.reverify_parked, daemon=True, name='park-claim').start()
                 if not self.feed_lock.locked() and time.time() - getattr(self, '_last_reverify', 0) > 3600:
                     if db.q("select 1 from items where status='failed' and error like '喂回:%' limit 1"):
                         self._last_reverify = time.time()
@@ -906,7 +966,7 @@ class Pipeline:
         return {'counts': c, 'total': total, 'extracted_total': extracted, 'ingested_total': ingested, 'thumb': tc, 'capture_mode': db.setting('capture_mode'),
                 'backdrop': {'pending': bc.get(1, 0), 'done': bc.get(2, 0), 'failed': bc.get(3, 0)}, 'capture_p50_ms': int(statistics.median(ct[-100:])) if ct else None,
                 'extract_pct': round(extracted * 100 / total, 2) if total else 0, 'ingest_pct': round(ingested * 100 / total, 2) if total else 0,
-                'finished': ingested + c.get('failed', 0), 'mode': db.setting('mode'), 'phase': self.state['phase'], 'feed_phase': self.state.get('phase_feed', 'idle'),
+                'finished': ingested + c.get('failed', 0), 'mode': db.setting('mode'), 'phase': self.state['phase'], 'feed_phase': self.state.get('phase_feed', 'idle'), 'feed_hold': max(0, int(getattr(self, 'feed_hold_until', 0) - time.time())),
                 'auth': bool((db.try_settings(('auth_pass_hash',)) or {}).get('auth_pass_hash', True)),   # 读不到就当「已设口令」:宁可不提示,也别在首页喊「还没设口令」误导人 'cd2_saves': getattr(self, 'cd2_saves', 0), 'cooldown': max(0, int(getattr(self, 'cooldown_until', 0) - time.time())),
                 'active_probes': self.slots.busy, 'queue': self.q.qsize() if hasattr(self, 'q') else 0, 'last_error': self.state['last_error'], 'last_feed': self.state['feed'],
                 'rate_per_min': round(rate, 1), 'eta_seconds': int(eta) if eta else None,

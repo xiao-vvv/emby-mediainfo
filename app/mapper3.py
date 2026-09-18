@@ -1,4 +1,4 @@
-# ffprobe 原始输出 -> Emby MediaSourceInfo 映射器 v3(规则来自对大量真实插件产出的统计,并用 100 份样本逐字段双向校验)
+# ffprobe 原始输出 -> Emby MediaSourceInfo 映射器 v3(规则全部来自 40 万份神医 json 的统计)
 import os, math, struct
 from fractions import Fraction
 

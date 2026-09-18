@@ -98,6 +98,79 @@ def item_state(cfg, item_id):
         d = _get(cfg, f"/emby/Users/{cfg['emby_user_id']}/Items/{item_id}?Fields=MediaStreams")
         return len(d.get('MediaStreams') or []), bool((d.get('ImageTags') or {}).get('Primary')), bool(d.get('BackdropImageTags'))
     except Exception: return -1, False, False
+
+_BATCH = {'ok': None}      # None=还没对照过 / True=可信 / False=退回逐条
+
+def _batch_fetch(cfg, ids, timeout=90):
+    d = _get(cfg, "/emby/Users/%s/Items?Ids=%s&Fields=MediaStreams&EnableImages=true"
+                  % (cfg['emby_user_id'], ','.join(str(i) for i in ids)), timeout)
+    got = d.get('Items')
+    if got is None: raise ValueError('响应里没有 Items 字段')
+    out = {}
+    for x in got:
+        try: i = int(x.get('Id'))
+        except (TypeError, ValueError): continue
+        out[i] = (len(x.get('MediaStreams') or []), bool((x.get('ImageTags') or {}).get('Primary')), bool(x.get('BackdropImageTags')))
+    return out
+
+def _batch_trustworthy(cfg, sample):
+    """正向对照:批量说「有流」「有封面」的,逐条查必须也这么说。
+    🔴只验正向。反向(批量说没有)证伪不了 —— 那可能本来就没有。而万一 Emby 不认
+      Fields=MediaStreams 或不返回 ImageTags,批量就会把「有」全报成「没有」:
+      前者让我们白刷一遍,后者会拿我们的截图覆盖掉人家已有的封面。所以对照不通过就老实逐条查。
+    整批里一个「有流」或一个「有封面」都找不到时同样判不可信 —— 没有对照物就不能信。"""
+    have_n = [i for i, v in sample.items() if v[0] > 0][:3]
+    have_p = [i for i, v in sample.items() if v[1]][:3]
+    if not have_n or not have_p: return False
+    return all(item_state(cfg, i)[0] > 0 for i in have_n) and all(item_state(cfg, i)[1] for i in have_p)
+
+def states(cfg, ids, progress=None, what='query'):
+    """一批条目的 {id: (流数, 有无Primary, 有无背景图)}。能批量就批量,不行退回逐条(行为与逐条完全一致)。
+    ⚠️这是本文件最热的一段:线上一批 1800 条,逐条 GET 光来回就要两三分钟,
+      而一个复核不上的批次要把这件事重复十几遍 —— 实测 48 小时里有 8.2 小时耗在这。"""
+    ids = list(ids)
+    if not ids: return {}
+    if _BATCH['ok'] is not False:
+        try:
+            out = {}
+            for c in range(0, len(ids), 100):
+                part = ids[c:c + 100]
+                got = _batch_fetch(cfg, part)
+                for i in part: out[i] = got.get(i, (-1, False, False))   # 查不到 = 未知,和逐条 404→-1 一个口径
+                if _BATCH['ok'] is None and not _batch_trustworthy(cfg, {i: out[i] for i in part}):
+                    _BATCH['ok'] = False
+                    raise ValueError('批量查询没通过正向对照,退回逐条')
+                _BATCH['ok'] = True
+                if progress and (c // 100) % 5 == 4: progress(f'{what} {min(c + 100, len(ids))}/{len(ids)}')
+            return out
+        except Exception:
+            _BATCH['ok'] = False
+    out = {}
+    for k, i in enumerate(ids):
+        out[i] = item_state(cfg, i)
+        if progress and (k + 1) % 20 == 0: progress(f'{what} {k + 1}/{len(ids)}')
+    return out
+
+CANARY_N = 25
+CANARY_MIN = 200          # 批次小于这个数就别探路了,探路本身的开销占比太高
+
+def _canary(cfg, cand, interval, progress=None):
+    """先拿一小撮探路:刷新它们,等一会看有没有进库。返回进库的条数。
+    🔴一条都没进 = Emby 现在吃不进刷新(多半在跑扫描/刷演员这类计划任务)。
+      这时候再拿整批 1800 条去撞,就是十几分钟换零产出 —— 线上 48 小时实测有 8.2 小时是这么烧掉的,
+      而且发完还会立刻原样重发,一轮接一轮。探路 75 秒就能把这件事问清楚。"""
+    probe = list(cand)[:CANARY_N]
+    for i in probe:
+        try: refresh(cfg, i)
+        except Exception: pass
+        time.sleep(interval)
+    for wait in (8, 12, 20, 25):
+        time.sleep(wait)
+        st = states(cfg, probe, progress, 'canary')
+        ok = sum(1 for v in st.values() if v[0] > 0)
+        if progress: progress(f'canary {ok}/{len(probe)}')
+        if ok: return ok
+    return 0
 def upload_image(cfg, item_id, itype, data):
     """把图片交给 Emby 存(POST /Items/{id}/Images/{Type},正文 base64)。Emby 按媒体库设置决定落在媒体旁边还是 metadata 目录,与原生截图同一条路"""
     url = cfg['emby_url'].rstrip('/') + f"/emby/Items/{item_id}/Images/{itype}?api_key={cfg['emby_api_key']}"
@@ -178,13 +251,22 @@ def ingest(cfg, ids, interval=0.3, latency_threshold=1.0, thumb_ids=None, progre
         res['fatal'] = '媒体信息目录写不进去(只读/满盘?),本批整批退回,没有对 Emby 做任何刷新'
         return res
     uploaded = set()
-    for k, i in enumerate(ids):
-        n, has_p, has_bd = item_state(cfg, i); pre_state[i] = (n, has_p, has_bd)
+    pre_state = states(cfg, ids, progress, 'precheck')              # 每条最坏 30s(GET 超时),间隔太大会撞上本地的空闲超时
+    for i in ids:
+        n, has_p, has_bd = pre_state.get(i, (-1, False, False))
         if n > 0:
             res['skipped'].append(i)
             if i in thumb_ids and not has_p: only_thumb.append(i)   # 媒体信息已有,只为截图刷一次
         else: todo.append(i)                                       # 0 或 -1(未知)都刷一遍,刷新是幂等的
-        if progress and (k + 1) % 20 == 0: progress(f'precheck {k + 1}/{len(ids)}')   # 每条最坏 30s(GET 超时),间隔太大会撞上本地的空闲超时
+    # 先探路再决定要不要发整批(见 _canary)。只拿真正缺媒体信息的去探 —— only_thumb 那些本来就查得到流
+    if len(todo) >= CANARY_MIN:
+        if _canary(cfg, todo, interval, progress) == 0:
+            res['unverified'] = list(ids)
+            res['skipped'] = []; res['done'] = []                  # 探路没过就等于什么都没做,别报「跳过 N 条」
+            res['busy'] = True
+            res['seconds'] = round(time.time() - t0, 1)
+            res['note'] = f'探路 {min(CANARY_N, len(todo))} 条无一进库,判定 Emby 暂时吃不进刷新,本批原样退回(没有刷新其余条目)'
+            return res
     todo = todo + only_thumb
     # 剧集截图:预检说还缺封面的才落盘(Emby 这会儿已经有图了就别放我们的截图进去覆盖)
     skipped_thumbs = {}
@@ -247,13 +329,15 @@ def ingest(cfg, ids, interval=0.3, latency_threshold=1.0, thumb_ids=None, progre
                 if res['slowdowns'] > 60: raise RuntimeError(f'Emby 持续不可用或延迟过高({l}s),中止本批,已刷新 {k + 1}/{len(todo)}')   # 最多等 10 分钟
                 if progress: progress(f'waiting emby lat={l} ({res["slowdowns"]}/60)')
                 time.sleep(10); l = latency(cfg); res['lat'].append(l)
-    # 复核:Emby 的 Refresh 是异步排队的,一批几千条时后面的要等一会才处理;查不到就隔 10 秒再查,最多等 3 分钟
+    # 复核:Emby 的 Refresh 是异步排队的,一批几千条时后面的要等一会才处理;查不到就隔 10 秒再查,最多轮 19 轮。
+    # ⚠️别把这里当成「最多等 3 分钟」—— 那是每轮只有几十条时的数字。一批 1800 条时,单轮本身就要几十秒到几分钟
     post = {}; pending_ids = [i for i in todo if i not in res['failed']]
     for attempt in range(19):
         time.sleep(3 if attempt == 0 else 10)
         still = []
+        cur = states(cfg, pending_ids, progress, f'verify{attempt + 1}')
         for c, i in enumerate(pending_ids):
-            n, has_p, has_bd = item_state(cfg, i)
+            n, has_p, has_bd = cur.get(i, (-1, False, False))
             pn, pp, pb = post.get(i, (-1, False, False))
             post[i] = (n if n >= 0 else pn, has_p or pp, has_bd or pb)   # 🔴查到过的好结果不许被后来一次超时擦掉(否则明明已入库却记成 unverified,攒三次判失败)
             n, has_p, has_bd = post[i]
@@ -319,7 +403,7 @@ def _do_ingest(cfg, man, files):
 
 def verify(cfg, ids):
     """{id: [流数, 有无Primary图, 有无背景图]},用于中断后核实"""
-    return {str(i): list(item_state(cfg, i)) for i in ids}
+    return {str(i): list(v) for i, v in states(cfg, ids, None, 'verify').items()}   # 每小时的「入库失败重核」也走批量,原来是逐条
 
 # ---------------- 路径体检 ----------------
 def check_paths(cfg):

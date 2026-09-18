@@ -147,7 +147,7 @@ class SshHost:
         if rc != 0: raise RuntimeError((e or o)[-300:])
         return _last_json(o, 'info')
     def fetch_worklist(self):
-        rd = self._prep(); q = shlex.quote(rd); rc, o, e = self._run(f'{PY} {q}/hostlib.py {q}/cfg.json worklist', 1800)   # ⚠️ 几十万行的清单会整块进内存(每 10 万行约 300MB),小内存机器要留意
+        rd = self._prep(); q = shlex.quote(rd); rc, o, e = self._run(f'{PY} {q}/hostlib.py {q}/cfg.json worklist', 1800)   # ⚠️ 47 万行清单会整块进内存(约 1~2G),小内存机器要留意
         if rc != 0: raise RuntimeError('worklist 失败: ' + (e or o)[-500:])
         rows = [json.loads(l) for l in o.split('\n') if l.startswith('{')]
         meta = next((r for r in rows if r.get('_meta')), {})
