@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="emby-mediainfo">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#202a38"/><stop offset="1" stop-color="#0e131a"/>
+    </linearGradient>
+    <linearGradient id="ac" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6ff0ae"/><stop offset="1" stop-color="#22a66b"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="56" fill="url(#bg)"/>
+  <rect x="8" y="8" width="240" height="240" rx="50" fill="none" stroke="#ffffff" stroke-opacity=".07" stroke-width="2"/>
+  <!-- 左:播放三角 = 媒体。描边宽 16 用来做圆角,所以路径要比目标轮廓内缩 8 -->
+  <path d="M58 80 L58 176 L121 128 Z" fill="url(#ac)" stroke="url(#ac)" stroke-width="16" stroke-linejoin="round"/>
+  <!-- 右:三条元数据横杠 = 提取出来的媒体信息,中间一条高亮。
+       左缘对齐 x=148,左右留白各 50,与三角之间留 19 的净空(太挤的话小尺寸会粘成一团) -->
+  <rect x="148" y="91"  width="58" height="18" rx="9" fill="#94a3b8"/>
+  <rect x="148" y="119" width="44" height="18" rx="9" fill="url(#ac)"/>
+  <rect x="148" y="147" width="32" height="18" rx="9" fill="#64748b"/>
+</svg>

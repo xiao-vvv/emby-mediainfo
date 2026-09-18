@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="emby-mediainfo">
+  <!-- 小尺寸专用(仓库头像 / favicon,16~48px)。完整版那三条横杠在 24px 以下会糊成一团,
+       这里只留三角 + 一条杠,圆角收小一点让轮廓更挺。
+       三角宽高比与完整版保持一致(0.705),两个资产并排看得出是一套。 -->
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#202a38"/><stop offset="1" stop-color="#0e131a"/>
+    </linearGradient>
+    <linearGradient id="ac" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#6ff0ae"/><stop offset="1" stop-color="#22a66b"/>
+    </linearGradient>
+  </defs>
+  <rect width="256" height="256" rx="44" fill="url(#bg)"/>
+  <!-- 描边宽 20 → 轮廓比路径外扩 10:实际 bbox 是 x52–145 / y62–194 -->
+  <path d="M62 72 L62 184 L135 128 Z" fill="url(#ac)" stroke="url(#ac)" stroke-width="20" stroke-linejoin="round"/>
+  <!-- 杠要够长才读得出是「一行」,太短会变成一颗孤立的点(宽高比 2.4) -->
+  <rect x="157" y="118" width="48" height="20" rx="10" fill="url(#ac)"/>
+</svg>

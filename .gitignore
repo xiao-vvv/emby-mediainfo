@@ -1,0 +1,18 @@
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# 运行时产生的,绝不能提交
+config/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+*.db
+secrets/
+out/
+tree/
+.env
+*-cookie.txt
+id_ed25519*
+known_hosts

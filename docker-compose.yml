@@ -1,0 +1,21 @@
+# 同机模式(容器和 Emby 在同一台机器)。远程模式见 README「远程模式」一节。
+# 改完路径后:docker compose up -d --build
+services:
+  emby-mediainfo:
+    build: .
+    image: emby-mediainfo
+    container_name: emby-mediainfo
+    restart: unless-stopped
+    # ⚠️绑 127.0.0.1:这个端口能改 115 cookie、能 SSH 到你的 Emby 主机,别对着局域网敞开
+    ports: ["127.0.0.1:8000:8000"]
+    environment:
+      MODE: local
+      # ⚠️不能填 127.0.0.1 —— 桥接网络里那是容器自己。填宿主机 IP,或者改用 network_mode: host
+      EMBY_URL: http://192.168.1.10:8096
+    volumes:
+      - ./config:/config                            # 状态库、115 cookie、SSH 密钥都在这
+      - /path/to/emby/config/data:/emby-data:ro     # 里面有 library.db(Emby 必须处于运行状态)
+      - /path/to/strm:/strm                         # strm 根目录(读写:截图要写到 strm 旁边)
+      - /path/to/mediainfo:/mediainfo               # 插件的 MediaInfoJsonRootFolder(必须可写)
+      # 可选:只有蓝光 ISO 需要(它走不了 HTTP 直链)
+      # - /path/to/115-mount:/cd2-115:ro

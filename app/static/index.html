@@ -1,0 +1,367 @@
+<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="theme-color" content="#f2f2f7" media="(prefers-color-scheme: light)"><meta name="theme-color" content="#0a0a0c" media="(prefers-color-scheme: dark)">
+<title>Media Info · emby-mediainfo</title>
+<link rel="icon" href="/favicon.ico">
+<script src="/static/vendor/vue.global.prod.js"></script>
+<script src="/static/vendor/chart.umd.min.js"></script>
+<style>
+:root{
+  color-scheme:light dark;
+  --bg:#f2f2f7;--bg2:#e9e9ef;--fg:#1d1d1f;--fg2:rgba(60,60,67,.6);--fg3:rgba(60,60,67,.3);
+  --glass:rgba(255,255,255,.62);--glass2:rgba(255,255,255,.42);--edge:rgba(255,255,255,.75);--line:rgba(60,60,67,.12);
+  --blue:#0a84ff;--green:#30d158;--orange:#ff9f0a;--red:#ff453a;--purple:#bf5af2;--teal:#64d2ff;
+  --shadow:0 1px 2px rgba(0,0,0,.04),0 12px 32px -12px rgba(0,0,0,.14);
+  --r:18px;--r2:12px;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0a0a0c;--bg2:#141418;--fg:#f5f5f7;--fg2:rgba(235,235,245,.7);--fg3:rgba(235,235,245,.38);
+  --glass:rgba(28,28,30,.55);--glass2:rgba(58,58,62,.45);--edge:rgba(255,255,255,.09);--line:rgba(120,120,128,.32);
+  --shadow:0 1px 2px rgba(0,0,0,.5),0 16px 40px -14px rgba(0,0,0,.7);
+}}
+*{box-sizing:border-box}html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.45 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue",system-ui,sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh}
+/* 背景光斑:给玻璃一个可模糊的底 */
+.mesh{position:fixed;inset:0;z-index:-1;overflow:hidden;background:var(--bg)}
+.mesh i{position:absolute;border-radius:50%;filter:blur(90px);opacity:.55}
+.mesh i:nth-child(1){width:52vw;height:52vw;left:-12vw;top:-18vw;background:#7cc4ff}
+.mesh i:nth-child(2){width:46vw;height:46vw;right:-10vw;top:8vw;background:#c7b3ff}
+.mesh i:nth-child(3){width:40vw;height:40vw;left:30vw;bottom:-22vw;background:#9ef0c4}
+@media (prefers-color-scheme:dark){.mesh i{opacity:.42;filter:blur(110px)}.mesh i:nth-child(1){background:#2f6fd6}.mesh i:nth-child(2){background:#6b3fb8}.mesh i:nth-child(3){background:#1f8a5a}}
+/* 玻璃材质:导航更厚,卡片更轻;不叠放 */
+.glass{background:var(--glass);-webkit-backdrop-filter:blur(24px) saturate(180%);backdrop-filter:blur(24px) saturate(180%);border:1px solid var(--edge);box-shadow:var(--shadow)}
+.stepper{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:10px;background:var(--glass2);overflow:hidden}.stepper button{border:0;background:transparent;color:var(--fg);font:inherit;font-size:16px;width:32px;height:30px;cursor:pointer}.stepper button:active{transform:scale(.94)}.stepper b{min-width:26px;text-align:center;font-variant-numeric:tabular-nums}
+header{position:sticky;top:0;z-index:5;margin:14px 18px 0;border-radius:var(--r);padding:10px 16px;display:flex;align-items:center;gap:12px}
+h1{font-size:17px;font-weight:600;letter-spacing:-.01em;margin:0}
+.sub{color:var(--fg2);font-size:13px}
+.status{display:inline-flex;align-items:center;gap:6px;padding:4px 11px;border-radius:999px;font-size:12.5px;font-weight:500;background:var(--glass2);border:1px solid var(--line);min-width:96px;justify-content:center;white-space:nowrap}
+.sub.phase{min-width:190px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.status .dot{width:7px;height:7px;border-radius:50%;background:var(--green);box-shadow:0 0 0 3px color-mix(in srgb,var(--green) 25%,transparent)}
+.status.warn .dot{background:var(--orange);box-shadow:0 0 0 3px color-mix(in srgb,var(--orange) 25%,transparent)}
+.status.bad .dot{background:var(--red);box-shadow:0 0 0 3px color-mix(in srgb,var(--red) 25%,transparent)}
+main{padding:14px 18px 40px;max-width:1360px;margin:0 auto;display:grid;gap:14px}
+.card{border-radius:var(--r);padding:16px 18px}
+.k{color:var(--fg2);font-size:12.5px;font-weight:500;letter-spacing:.01em}
+.v{font-size:26px;font-weight:600;letter-spacing:-.02em;font-variant-numeric:tabular-nums;line-height:1.1;margin-top:3px;min-height:29px}
+.v.sm{font-size:19px}.hint{color:var(--fg2);font-size:12.5px;margin-top:4px;font-variant-numeric:tabular-nums}
+.grid{display:grid;gap:12px}.g7{grid-template-columns:repeat(auto-fit,minmax(128px,1fr))}.g2{grid-template-columns:repeat(auto-fit,minmax(380px,1fr))}.g3{grid-template-columns:2fr 1fr}
+@media (max-width:900px){.g3{grid-template-columns:1fr}header{flex-wrap:wrap}.sub.phase{display:none}.g7{grid-template-columns:repeat(3,1fr)}}
+.progress{height:8px;border-radius:999px;background:var(--line);overflow:hidden;margin:10px 0 14px}
+.progress i{display:block;height:100%;border-radius:999px;background:linear-gradient(90deg,var(--blue),var(--teal));transition:width .6s cubic-bezier(.2,.8,.2,1)}.progress.green i{background:linear-gradient(90deg,#30d158,#64d2ff)}.pct{font-variant-numeric:tabular-nums;font-size:15px;letter-spacing:-.01em;min-width:64px;text-align:right}.hint{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 分段控件 */
+.seg{display:inline-flex;padding:3px;border-radius:12px;background:var(--glass2);border:1px solid var(--line);gap:2px}
+.seg button{border:0;background:transparent;color:var(--fg2);font:inherit;font-size:13.5px;font-weight:500;padding:6px 16px;border-radius:9px;cursor:pointer;transition:background .18s,color .18s,transform .1s}
+.seg button.on{background:var(--glass);color:var(--fg);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+.seg button:active{transform:scale(.97)}
+/* 按钮 */
+.btn{border:0;border-radius:11px;padding:8px 14px;font:inherit;font-size:13.5px;font-weight:500;cursor:pointer;color:#fff;background:var(--blue);transition:transform .1s,filter .15s}
+.btn:active{transform:scale(.97)}.btn:hover{filter:brightness(1.06)}
+.btn.soft{background:var(--glass2);color:var(--fg);border:1px solid var(--line)}.btn.red{background:var(--red)}.btn.green{background:var(--green);color:#03240f}
+.row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.sp{flex:1}
+/* 表格 */
+table{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixed}th:nth-child(1){width:84px}th:nth-child(2){width:64px}th:nth-child(4){width:120px}th:nth-child(5){width:64px}th:nth-child(6){width:76px}th:nth-child(7){width:26%}th:nth-child(8){width:64px}th{color:var(--fg2);font-weight:500;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}tr:last-child td{border-bottom:0}
+td.n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.chip{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:500;background:var(--glass2);border:1px solid var(--line);color:var(--fg2)}
+.chip.done{color:var(--green)}.chip.failed{color:var(--red)}.chip.probing,.chip.feeding{color:var(--blue)}.chip.extracted{color:var(--orange)}
+input,select,textarea{font:inherit;font-size:14px;color:var(--fg);background:var(--glass2);border:1px solid var(--line);border-radius:10px;padding:8px 11px;outline:none;transition:border-color .15s,box-shadow .15s}
+input:focus,select:focus,textarea:focus{border-color:var(--blue);box-shadow:0 0 0 3px color-mix(in srgb,var(--blue) 22%,transparent)}
+textarea{width:100%;min-height:86px;resize:vertical;font-family:ui-monospace,SF Mono,Menlo,monospace;font-size:12.5px}
+label .k,.fld .k{display:block;margin-bottom:4px}
+.toast{margin-left:10px;padding:3px 9px;border-radius:999px;background:rgba(0,122,255,.14);color:var(--blue);cursor:pointer;max-width:52vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fld{display:flex;flex-direction:column}
+.log{font:12.5px/1.6 ui-monospace,"SF Mono",Menlo,monospace;max-height:520px;overflow:auto;white-space:pre-wrap}
+.log .t{color:var(--fg3)}.err{color:var(--red)}.warn{color:var(--orange)}
+.inflight{height:232px;overflow:auto;overscroll-behavior:contain;margin-top:4px}.inflight li{display:grid;grid-template-columns:minmax(0,1fr) 64px 72px 56px;gap:10px;align-items:center;height:36px;padding:0;border-bottom:1px solid var(--line);font-size:13.5px}
+.inflight li:last-child{border-bottom:0}.inflight .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.inflight ul{list-style:none;margin:0;padding:0}
+.stage{font-size:12px;color:var(--blue);font-weight:500;white-space:nowrap}.mono{font-variant-numeric:tabular-nums;color:var(--fg2);font-size:12.5px;text-align:right;white-space:nowrap}
+.empty{color:var(--fg3);font-size:13px;padding:8px 0}
+.fade-enter-active,.fade-leave-active{transition:opacity .18s}.fade-enter-from,.fade-leave-to{opacity:0}
+
+/* ⚠️下面这三条必须留在媒体查询**外面**。踩过两次:写进 @media 里等于只对手机生效,
+   而它们要修的恰恰是桌面的毛病(点「展开」没反应、「截图」按钮点不到、Vue 没起来时露出 {{ 模板 }}) */
+td.n.open{white-space:normal;word-break:break-all;overflow:visible}
+th:nth-child(8),td:nth-child(8){width:132px}   /* 一行两个按钮各 57px;原来 64px + overflow:hidden,「截图」按钮在桌面根本点不到 */
+[v-cloak]{display:none}
+
+/* ---- 手机(≤640px) ---- */
+@media (max-width:640px){
+  .tabs .seg button{min-height:44px}
+  header{margin:8px 8px 0;padding:8px 10px;gap:8px;border-radius:14px}
+  header h1{font-size:15px}header .sub:not(.phase):not(.toast){display:none}   /* ⚠️toast 是唯一的操作反馈,手机上更不能藏 */
+  header .btn{padding:6px 10px;font-size:12.5px}
+  main{padding:10px 8px 32px;gap:10px}.card{padding:12px 12px;border-radius:14px}
+  .v{font-size:20px}.v.sm{font-size:16px}.k{font-size:11.5px}.hint{font-size:11.5px;white-space:normal}
+  .g7{grid-template-columns:repeat(4,1fr);gap:8px}.g2{grid-template-columns:1fr}
+  .seg{width:100%;overflow-x:auto;-webkit-overflow-scrolling:touch}.seg button{flex:1;padding:6px 8px;font-size:12.5px;white-space:nowrap;min-height:44px}
+  .stepper button{width:34px;height:34px}
+  /* 在途列表:两行式 */
+  .inflight{height:auto;max-height:260px;min-height:0}.inflight li{grid-template-columns:1fr auto;grid-template-rows:auto auto;height:auto;padding:6px 0;row-gap:2px}
+  .stepper button{width:44px;height:44px}.btn{min-height:40px}.pager .btn{min-width:44px;min-height:44px}
+  .inflight li .nm{grid-column:1/-1;font-size:13px}.inflight li .stage{grid-row:2}.inflight li .mono{grid-row:2;text-align:left}
+  /* 表格 → 卡片 */
+  table,thead,tbody,tr,td{display:block}thead{display:none}
+  tr{display:flex;flex-wrap:wrap;gap:2px 14px;border-bottom:1px solid var(--line);padding:9px 0}tr:last-child{border-bottom:0}
+  td{border:0;padding:0;white-space:normal;overflow:visible;font-size:13px}td.n{flex:1 0 100%;white-space:normal;word-break:break-all;font-weight:500;font-size:13.5px;margin-bottom:2px}td.err{flex:1 0 100%}
+  td[data-l]::before{content:attr(data-l) " ";color:var(--fg2);font-size:12px}
+  td:empty{display:none}
+  /* 设置表单单列 */
+  .grid[style*="minmax(230px"]{grid-template-columns:1fr!important}
+  .row{gap:8px}canvas{max-width:100%}
+  .progress{margin:8px 0 10px}
+}
+@media (max-width:400px){.g7{grid-template-columns:repeat(3,1fr)}}
+
+/* ---- 手机 第三轮:顶栏两行、胶囊状态、设置密度、图表可读、长串横滑 ---- */
+@media (max-width:640px){
+  header{flex-wrap:wrap;row-gap:8px;padding:10px 12px}
+  header h1{flex:1 0 auto}header .status{order:1}header .sub.phase{order:2;flex:1 0 100%;display:block;min-width:0}
+  header .btn{order:3;flex:1 1 auto;min-height:44px;padding:10px 14px;font-size:14px}
+  .stage{display:inline-block;padding:3px 9px;border-radius:999px;background:color-mix(in srgb,var(--blue) 12%,transparent);font-size:12px}
+  .chip{min-height:26px;line-height:20px}
+  /* 设置:标签+值同行,短字段两列 */
+  .grid[style*="minmax(230px"]{grid-template-columns:1fr 1fr!important;gap:8px 10px}
+  .grid[style*="minmax(230px"] label,.grid[style*="minmax(230px"] .fld{display:flex;flex-direction:column}
+  .grid[style*="minmax(230px"] label.wide{grid-column:1/-1}
+  label .k,.fld .k{font-size:11.5px;margin-bottom:2px}input,select,textarea{padding:9px 10px;font-size:16px}   /* iOS 上小于 16px 会自动放大整页 */
+  /* 长串:单行横滑 */
+  td.n,.inflight .nm{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;max-width:100%;display:block}
+  td.n{font-size:13px;word-break:normal}td.n.open{white-space:normal;word-break:break-all}
+  code.long{display:block;word-break:break-all;white-space:normal;font-size:11.5px}
+  body{overflow-x:hidden}main,section,.card,tr,td,li{min-width:0}
+  /* 图表:横滑卡片 */
+  section.g2.charts{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:10px;padding-bottom:4px}
+  section.g2.charts>.card{flex:0 0 88%;scroll-snap-align:start}
+  section.g2.charts canvas{height:150px!important}
+}
+@media (prefers-reduced-transparency:reduce){.glass{background:var(--bg2);backdrop-filter:none;-webkit-backdrop-filter:none}.mesh{display:none}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style></head>
+<body>
+<div class="mesh"><i></i><i></i><i></i></div>
+<div id="app" v-cloak>
+<header class="glass">
+  <h1>Media Info</h1><span class="sub">emby-mediainfo</span>
+  <span class="status" :class="s.breaker.tripped?'bad':(s.paused?'warn':(s.cookie&&s.cookie.ok===false?'bad':''))"><i class="dot"></i>{{ statusText }}</span>
+  <span class="sub phase">{{ phaseText }}</span><span v-if="s.auth===false" class="sub toast" style="background:rgba(255,69,58,.16);color:#ff6961" @click="go('settings')">未设登录口令,点这里设置</span><span v-if="msg" class="sub toast" @click="msg=''">{{ msg }}</span>
+  <span class="sp"></span>
+  <button class="btn soft" v-if="!s.paused" @click="ctl('pause')">暂停</button><button class="btn" v-else @click="ctl('resume')">继续</button>
+  <button class="btn soft" :disabled="s.paused||s.feed_phase&&s.feed_phase!=='idle'" @click="ctl('feed-now')">立即入库</button>
+  <button class="btn soft" v-if="s.auth" @click="logout">退出登录</button>
+  <button class="btn red" v-if="s.breaker.tripped" @click="ctl('reset-breaker')">重置熔断</button>
+</header>
+<main>
+  <section class="card glass">
+    <div class="grid" style="grid-template-columns:1fr 1fr;gap:18px">
+      <div><div class="row"><span class="k">提取进度</span><span class="hint">{{ fmt(s.extracted_total) }} / {{ fmt(s.total) }}</span><span class="sp"></span><b class="pct">{{ num(s.extract_pct) }}%</b></div>
+        <div class="progress"><i :style="{width:num(s.extract_pct)+'%'}"></i></div><div class="hint">{{ num(s.rate_per_min) }} 条/分 · 预计剩余 {{ eta }}</div></div>
+      <div><div class="row"><span class="k">入库进度</span><span class="hint">{{ fmt(s.ingested_total) }} / {{ fmt(s.total) }}</span><span class="sp"></span><b class="pct">{{ num(s.ingest_pct) }}%</b></div>
+        <div class="progress green"><i :style="{width:num(s.ingest_pct)+'%'}"></i></div><div class="hint">已提取待入库 {{ fmt((s.counts.extracted||0)+(s.counts.feeding||0)) }} · 失败 {{ fmt(s.counts.failed||0) }}</div></div>
+    </div>
+    <div class="grid g7" style="margin-top:14px">
+      <div v-for="k in order" :key="k"><div class="k">{{ label[k] }}</div><div class="v" :style="{color:colorOf(k)}">{{ fmt(s.counts[k]||0) }}</div></div>
+    </div>
+    <p v-if="s.breaker.tripped" class="hint err" style="margin:10px 0 0">熔断:{{ s.breaker.reason }} · {{ (s.breaker.reason||'').indexOf('登录失效')>=0 ? '登录失效不会自动恢复,换 cookie 后点「重置熔断」' : '45 分钟后自动试探恢复' }}</p>
+    <p v-if="s.cookie&&s.cookie.ok===false" class="hint err" style="margin:10px 0 0">115 cookie 无效:{{ s.cookie.err }} · 去「设置」更换</p>
+    <p v-if="s.last_error" class="hint" style="margin:8px 0 0">最近错误 · {{ s.last_error }}</p>
+  </section>
+
+  <section class="grid g3">
+    <div class="card glass">
+      <div class="row" style="margin-bottom:6px"><span class="k">正在提取</span><span class="hint">{{ s.inflight.length }} 项 · 队列 {{ s.queue }}</span>
+        <span class="stepper" title="ffprobe 并发(=115 下载并发),改了立即生效"><button @click="bump(-1)">−</button><b>{{ st.probe_workers }}</b><button @click="bump(1)">+</button></span><span class="hint">并发 · 跑 {{ s.active_probes }}</span><span class="sp"></span>
+        <span class="k">↓ 网速</span><span class="v sm" style="color:var(--blue);min-width:92px;text-align:right">{{ s.net.mbps.toFixed(1) }} <small style="font-size:12px;color:var(--fg2)">Mb/s</small></span><canvas ref="spark" width="120" height="28" style="width:120px;height:28px"></canvas></div>
+      <div class="inflight"><ul>
+        <li v-for="it in s.inflight" :key="it.id"><span class="nm" :title="it.name">{{ it.name }}</span><span class="stage">{{ it.stage }}</span><span class="mono">{{ it.size? gb(it.size):'' }}</span><span class="mono">{{ it.elapsed }}s</span></li>
+      </ul><div v-if="!s.inflight.length" class="empty">{{ s.paused?'已暂停':'空闲' }}</div></div>
+    </div>
+    <div class="card glass">
+      <div class="grid" style="grid-template-columns:1fr 1fr;gap:14px">
+        <div><div class="k">速率</div><div class="v sm">{{ s.rate_per_min }}<small class="hint"> 条/分</small></div></div>
+        <div><div class="k">ffprobe p50</div><div class="v sm">{{ s.probe_p50_ms||'—' }}<small class="hint"> ms</small></div></div>
+        <div><div class="k">115 API</div><div class="v sm">{{ s.api_rps??'—' }}<small class="hint"> 次/秒</small></div></div>
+        <div><div class="k">目录缓存</div><div class="v sm">{{ fmt(s.dir_cache) }}</div></div>
+        <div><div class="k">截图({{ {off:'关',with_probe:'随提取',after:'稍后'}[s.capture_mode]||'—' }})</div><div class="v sm">{{ fmt(thumbShot) }}<small class="hint"> 已截 · 入库 {{ fmt((s.thumb||{}).done||0) }} · 待 {{ fmt((s.thumb||{}).pending||0) }} · 失败 {{ fmt((s.thumb||{}).failed||0) }}{{ s.backdrop&&(s.backdrop.done||s.backdrop.pending||s.backdrop.failed)? ' · 背景图 '+fmt(s.backdrop.done)+'/'+fmt(s.backdrop.done+s.backdrop.pending+(s.backdrop.failed||0))+((s.backdrop.failed||0)?' 失败 '+fmt(s.backdrop.failed):''):'' }}{{ s.capture_p50_ms? ' · 截一张 '+(s.capture_p50_ms/1000).toFixed(1)+'s':'' }}</small></div></div>
+        <div><div class="k">115 账号</div><div class="v sm" :style="{color:s.cookie.ok?'var(--green)':'var(--red)'}">{{ s.cookie.user_id||'—' }}</div><div class="hint">{{ s.cookie.ok?('VIP '+s.cookie.vip):(s.cookie.err||'未验证') }}</div></div>
+      </div>
+      <p class="hint" v-if="s.last_feed&&s.last_feed.batch" style="margin:12px 0 0">最近入库 {{ s.last_feed.batch }} · 成功 {{ s.last_feed.done }} · 跳过 {{ s.last_feed.skipped }} · 失败 {{ s.last_feed.failed }} · {{ s.last_feed.seconds }}s<span v-if="s.last_feed.slowdowns"> · 减速 {{ s.last_feed.slowdowns }} 次</span></p>
+    </div>
+  </section>
+
+  <div class="row tabs"><div class="seg"><button v-for="t in tabs" :key="t" :class="{on:tab===t}" @click="go(t)">{{ tabName[t] }}</button></div></div>
+
+  <section v-show="tab==='charts'" class="grid g2 charts">
+    <div class="card glass" v-for="c in chartDefs" :key="c.id"><div class="k">{{ c.title }}</div><canvas :id="c.id" height="120"></canvas></div>
+  </section>
+
+  <section v-show="tab==='items'" class="card glass">
+    <div class="row" style="margin-bottom:10px">
+      <select v-model="f.status" @change="page=1;load()"><option value="">全部状态</option><option v-for="k in order" :value="k">{{ label[k] }}</option></select>
+      <input v-model="f.q" placeholder="搜索文件名或路径" @keyup.enter="page=1;load()" style="width:300px">
+      <button class="btn soft" @click="page=1;load()">查询</button>
+      <button class="btn soft" v-if="f.status==='failed'" @click="ctl('retry-failed',true)">失败全部重试</button><button class="btn soft" @click="ctl('retry-thumbs',true)">重试截图失败</button><button class="btn soft" v-if="f.status==='failed'" @click="ctlMsg('reverify-failed','后台重核中,看日志')" title="向 Emby 核实「喂回后仍无流记录」的条目,实际已入库的改为完成">入库失败重核</button>
+      <button class="btn soft" @click="dlCsv">导出失败条目</button>
+      <span class="sp"></span><span class="hint">{{ fmt(list.total) }} 条 · 第 {{ page }}/{{ Math.max(1,Math.ceil(list.total/50)) }} 页</span>
+      <span class="pager"><button class="btn soft" :disabled="page<=1" @click="page>1&&(page--,load())">‹</button> <button class="btn soft" :disabled="page*50>=list.total" @click="(page*50<list.total)&&(page++,load())">›</button></span>
+    </div>
+    <table><thead><tr><th>Id</th><th>类型</th><th>文件</th><th>状态</th><th>流/章</th><th>探测</th><th>错误</th><th></th></tr></thead>
+    <tbody><tr v-if="!list.items.length"><td colspan="8" class="mut" style="text-align:center;padding:26px">{{ f.status||f.q? '没有符合条件的条目':'还没有待办条目 —— 先在设置页点「同步待办清单」' }}</td></tr>
+    <tr v-for="it in list.items" :key="it.id">
+      <td class="mono" data-l="Id">{{ it.id }}</td><td data-l="类型">{{ it.kind }}</td><td class="n" :class="{open:openId===it.id}" :title="(it.name? it.name+' — ':'')+it.target" @click="openId=openId===it.id?null:it.id">{{ base(it.target) }}</td>
+      <td data-l="状态"><span class="chip" :class="it.status">{{ label[it.status]||it.status }}</span><span v-if="it.attempts" class="mono"> ×{{ it.attempts }}</span></td>
+      <td class="mono" :data-l="it.streams!=null?'流':null">{{ it.streams??'' }}<span v-if="it.chapters" class="mut"> · {{ it.chapters }} 章</span></td><td class="mono" :data-l="it.probe_ms?'探测':null">{{ it.probe_ms? it.probe_ms+'ms':'' }}</td>
+      <td class="err" style="max-width:320px;font-size:12.5px" :data-l="it.error?'错误':null">{{ it.error }}</td>
+      <td><button class="btn soft" v-if="['failed','skipped'].includes(it.status)" @click="retry(it.id)">重试</button><button class="btn soft" v-if="it.ext!=='.iso'" :disabled="capBusy===it.id" :title="'截图: '+(it.thumb||'none')+(it.thumb_err?' · '+it.thumb_err:'')" @click="cap(it.id)">{{ capBusy===it.id?'截图中…':({done:'已截',captured:'待入库',feeding:'入库中',failed:'重截'}[it.thumb]||'截图') }}</button></td>
+    </tr></tbody></table>
+  </section>
+
+  <section v-show="tab==='settings'" class="grid g2">
+    <div class="card glass" style="grid-column:1/-1">
+      <div class="row"><span class="k">部署模式</span>
+        <div class="seg"><button :class="{on:st.mode==='local'}" @click="st.mode='local'">同机(挂目录直连)</button><button :class="{on:st.mode==='ssh'}" @click="st.mode='ssh'">远程(SSH 到 Emby 主机)</button></div>
+        <span class="sp"></span><button class="btn soft" @click="hostCheck">测试主机与路径</button><button class="btn soft" @click="embyTest">测试 Emby 连接</button><button class="btn" @click="saveSettings">保存全部</button><span class="hint">{{ msg }}</span></div>
+      <div class="hint" style="margin-top:6px">测试按钮会先保存当前设置(要用新填的地址去连)</div>
+      <div v-if="hc" class="hint" style="margin-top:8px">
+        <span :class="hc.ok?'':'err'">{{ hc.ok? '主机 OK · '+(hc.host||'') : '主机失败:'+hc.err }}</span>
+        <template v-if="hc.paths"> · <span v-for="(v,k) in hc.paths" :key="k" style="margin-right:10px"><span class="chip" :class="v.exists?(k==='mediainfo_root'? (v.writable?'done':'failed'):(v.readable?'done':'failed')):'failed'">{{ pathLabel[k] }}</span> {{ v.path }}</span></template>
+      </div>
+      <div v-if="et" class="hint" style="margin-top:6px"><span :class="et.ok?'':'err'">{{ et.ok? ('Emby '+et.server+' '+et.version) : ('Emby 失败:'+et.err) }}</span>
+        <template v-if="et.ok"> · 用户:<button v-for="u in et.users" :key="u.id" class="btn soft" style="padding:3px 9px;margin-left:6px" :style="{borderColor:st.emby_user_id===u.id?'var(--blue)':''}" @click="st.emby_user_id=u.id">{{ u.name }}<span v-if="u.admin"> ★</span></button></template></div>
+    </div>
+    <div class="card glass" style="grid-column:1/-1">
+      <div class="k" style="margin-bottom:10px">登录口令{{ s.auth? '(已开启)' : '(未设置,任何人都能打开这个页面)' }}</div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(200px,1fr))">
+        <label class="fld"><span class="k">用户名</span><input v-model="st.auth_user" autocomplete="username" placeholder="root"></label>
+        <label class="fld" v-if="s.auth"><span class="k">当前密码</span><input v-model="pw.old" type="password" autocomplete="current-password"></label>
+        <label class="fld"><span class="k">新密码(留空=关闭登录)</span><input v-model="pw.new1" type="password" autocomplete="new-password"></label>
+        <label class="fld"><span class="k">再输一次</span><input v-model="pw.new2" type="password" autocomplete="new-password"></label>
+      </div>
+      <div class="row" style="margin-top:10px"><button class="btn" @click="setPw">保存口令</button>
+        <span class="hint">只存哈希,明文不落盘。改完当前浏览器不用重新登录。改用户名也要填当前密码,按这个按钮才生效</span></div>
+    </div>
+    <template v-for="(keys,g) in groups" :key="g"><div class="card glass" v-if="(g!=='远程模式'||st.mode==='ssh')&&(g!=='同机模式'||st.mode==='local')&&g!=='登录'">
+      <div class="k" style="margin-bottom:10px">{{ g }}</div>
+      <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(230px,1fr))">
+        <template v-for="k in keys" :key="k">
+          <div v-if="k==='capture_mode'" class="wide fld"><span class="k">截图</span>
+            <div class="seg" style="margin-top:4px"><button v-for="o in captureModes" :key="o.v" :class="{on:st.capture_mode===o.v}" @click="setCap(o.v)">{{ o.t }}</button></div>
+            <span class="hint" style="margin-top:6px">{{ captureModes.find(o=>o.v===st.capture_mode)?.d }}</span></div>
+          <label v-else :class="{wide:longKeys.includes(k)}"><span class="k">{{ sdesc[k]||k }}</span><input v-model="st[k]" :type="typeof st[k]==='number'?'number':'text'" step="any" style="width:100%" :placeholder="ph[k]||''"></label>
+        </template>
+      </div>
+      <div v-if="g==='远程模式'" class="hint" style="margin-top:10px">
+        <template v-if="pc.ssh_key&&pc.ssh_key.exists">公钥(加到 Emby 主机的 <code>~/.ssh/authorized_keys</code>):<br><code class="mono long" style="user-select:all">{{ pc.ssh_key.pubkey }}</code></template>
+        <template v-else>还没有密钥 <button class="btn soft" @click="keygen">生成密钥</button></template>
+      </div>
+      <div v-if="g==='运行'" class="row" style="margin-top:10px"><button class="btn soft" @click="sync">同步待办清单</button><span class="hint">在 Emby 主机做库快照,几十秒到几分钟</span></div>
+      <!-- 路径体检的结果原来只用了 ssh_key 一项,其余全丢了;115 挂载能不能看到最值得当场知道(ISO 全靠它) -->
+      <div v-if="g==='115 网盘'&&pc.cd2_115_root" class="hint" style="margin-top:10px">115 挂载 <code class="mono">{{ pc.cd2_115_root.path||'(没填)' }}</code>:{{ pc.cd2_115_root.exists?'容器里看得到':'容器里看不到(只影响 ISO)' }}</div>
+      <div v-if="g==='同机模式'&&pc.library_db" class="hint" style="margin-top:10px"><template v-for="k in ['library_db','strm_root','mediainfo_root']" :key="k">{{ sdesc[k]||k }}:{{ pc[k]&&pc[k].exists?(pc[k].writable?'可读写':'只读'):'看不到' }}<br></template></div>
+    </div></template>
+    <div class="card glass">
+      <div class="k" style="margin-bottom:10px">115 Cookie</div>
+      <div class="row" style="margin-bottom:8px">
+        <span class="chip" :class="ck.ok?'done':'failed'">{{ ck.ok? '有效':'无效/未验证' }}</span>
+        <span class="hint">账号 {{ ck.user_id||'—' }} {{ ck.user_name||'' }} · VIP {{ ck.vip??'—' }} · 上次验活 {{ ck.checked_at? ts(ck.checked_at):'—' }}</span>
+        <span class="sp"></span><button class="btn soft" @click="checkCookie">立即验活</button>
+      </div>
+      <p class="hint" style="margin:0 0 8px">当前:{{ ck.preview||'—' }}… · 更新于 {{ ck.file_mtime? ts(ck.file_mtime):'—' }}。每小时自动验活,失效会在顶部提示。</p>
+      <textarea v-model="newCookie" placeholder="粘贴 115 网页版 cookie(UID=…; CID=…; SEID=…; KID=…;),先验活再写入并热切换"></textarea>
+      <div class="row" style="margin-top:8px"><button class="btn green" @click="saveCookie" :disabled="!newCookie">验证并替换</button><span class="hint" :class="{err:ckMsgErr}">{{ ckMsg }}</span></div>
+    </div>
+  </section>
+
+  <section v-show="tab==='log'" class="card glass log"><div v-for="e in events" :key="e.id"><span class="t">{{ ts(e.ts) }}</span> <span :class="e.level==='error'?'err':e.level==='warn'?'warn':''">{{ e.level }}</span> {{ e.msg }}</div></section>
+</main></div>
+<script>
+const {createApp}=Vue; const CH={}; let SPARK=null;
+createApp({
+  data(){return{s:{counts:{},breaker:{},last_feed:{},cookie:{},net:{mbps:0,hist:[],total_rx:0},inflight:[]},tab:'charts',tabs:['charts','items','settings','log'],
+    tabName:{charts:'趋势',items:'条目',settings:'设置',log:'日志'},
+    order:['pending','probing','extracted','feeding','done','skipped','failed'],
+    label:{pending:'待处理',probing:'探测中',extracted:'已提取',feeding:'喂回中',done:'完成',skipped:'跳过',failed:'失败'},
+    chartDefs:[{id:'c1',key:'done',title:'完成数(6 小时)',color:'#30d158'},{id:'c2',key:'emby_latency',title:'Emby 接口延迟(秒)',color:'#ff9f0a'},{id:'c3',key:'net_mbps',title:'提取网速(Mb/s)',color:'#0a84ff'},{id:'c4',key:'probe_p50_ms',title:'ffprobe p50(ms)',color:'#bf5af2'}],
+    f:{status:'',q:''},openId:null,page:1,list:{total:0,items:[]},st:{},groups:{},clamps:{},msg:'',events:[],ck:{},newCookie:'',ckMsg:'',ckMsgErr:false,hc:null,et:null,pc:{},
+    capBusy:0, pw:{old:'',new1:'',new2:''},
+    captureModes:[{v:'off',t:'关闭',d:'不截图'},{v:'with_probe',t:'与媒体信息一起',d:'探测完顺手截一帧,省一次取直链;媒体信息入库会慢一倍'},{v:'after',t:'媒体信息跑完后',d:'待处理清空后自动开始,只对缺封面的剧集/电影截'}],
+    longKeys:['user_agent','library_db','strm_root','mediainfo_root','remote_dir','remote_library_db','remote_strm_root','remote_mediainfo_root','ssh_key','strm_115_prefix','cd2_115_root','emby_url','emby_api_key','emby_user_id','exclude_exts'],
+    pathLabel:{library_db:'library.db',strm_root:'strm 目录',mediainfo_root:'媒体信息目录',cd2_115_root:'115 挂载'},
+    ph:{strm_115_prefix:'/mnt/cloud/115',remote_library_db:'/config/data/library.db',remote_strm_root:'/mnt/media/strm',remote_mediainfo_root:'/mnt/media/mediainfo',ssh_host:'IP 或域名'},
+    sdesc:{probe_workers:'ffprobe 并发(=115 下载并发)',api_interval:'115 API 最小间隔(秒)',url_batch:'每批条目数',probe_timeout:'ffprobe 超时(秒)',feed_batch:'攒多少条入库一次',feed_interval:'最多隔多少秒入库一次',refresh_interval:'逐条刷新间隔(秒)',latency_threshold:'Emby 延迟阈值(秒,超过暂停入库)',dir_cache_ttl:'115 目录缓存 TTL(秒)',max_retries:'最大重试',worklist_sync_hours:'待办清空后自动同步间隔(小时,0=不自动)',user_agent:'User-Agent',
+      emby_api_key:'Emby API key',emby_user_id:'Emby 用户 Id(测试连接后点选)',emby_strm_prefix:'Emby 库里 strm 路径前缀',emby_url:'Emby 地址(远程模式填从 Emby 主机访问的地址)',library_db:'library.db(容器内路径)',strm_root:'strm 目录(容器内路径)',mediainfo_root:'媒体信息目录(容器内路径)',
+      ssh_host:'SSH 主机',ssh_port:'SSH 端口',ssh_user:'SSH 用户',ssh_key:'私钥路径',remote_dir:'对端工作目录',remote_library_db:'对端 library.db',remote_strm_root:'对端 strm 目录',remote_mediainfo_root:'对端媒体信息目录',
+      strm_115_prefix:'strm 内容里 115 根目录前缀',cd2_115_root:'115 挂载(容器内,仅 ISO)',exclude_exts:'跳过的容器后缀(逗号分隔)',
+      capture_mode:'截图模式:off / with_probe(与媒体信息一起) / after(媒体信息跑完后)',capture_position:'截图位置(时长百分比)',capture_hdr_tonemap:'HDR 转 SDR 色调映射(1=开)',capture_quality:'JPEG 质量(1 最好~5)',capture_backdrop:'电影缺海报时截图同时作背景图(仅当没背景图;同神医,剧集不生成;1=开)',capture_pick_best:'在那一秒里抓 24 帧挑一张(= Emby 原生/神医的做法,用 ffmpeg 的 thumbnail 滤镜,一次解码;1=开)',trust_proxy:'套了反代才开:按 X-Forwarded-For 最后一跳认来源(1=开;没反代开了等于谁都能伪造来源绕过登录限流;套了两层如 CDN→nginx 取到的是 CDN 的 IP,仍会所有人共用一个限流桶)',capture_avoid_dark:'撞上黑场/暗场就往后再试两个位置(神医没有这一步,想完全对齐就关掉;1=开)'}}},
+  computed:{
+    thumbShot(){const t=this.s.thumb||{};return (t.captured||0)+(t.feeding||0)+(t.done||0)},
+    eta(){const e=this.s.eta_seconds;if(!e)return'—';const d=Math.floor(e/86400),h=Math.floor(e%86400/3600),m=Math.floor(e%3600/60);return d?`${d}天${h}小时`:h?`${h}小时${m}分`:`${m}分`},
+    statusText(){return this.s.breaker.tripped?'熔断':this.s.paused?'已暂停':(this.s.cookie&&this.s.cookie.ok===false)?'Cookie 无效':'运行中'},
+    phaseText(){if(!this.s.mode)return '连接中…';const p={idle:'空闲',extracting:'提取中',paused:'暂停',breaker:'熔断中','no-cookie':'无 cookie',cooldown:'限流冷却中'+(this.s.cooldown?'('+this.s.cooldown+'秒)':'')}[this.s.phase]||this.s.phase||'—';return p+(this.s.mode==='ssh'?' · 远程模式':' · 同机模式')+(this.s.feed_phase&&this.s.feed_phase!=='idle'?' · '+this.s.feed_phase:'')}
+  },
+  methods:{
+    async api(p,o,noRedirect){const r=await fetch('/api/'+p,o);
+      let j=null;try{j=await r.json()}catch(e){}
+      if(r.status===401&&!noRedirect){location.href='/login';throw new Error('未登录')}   // 改口令填错旧密码也是 401,那种不能把人踢去登录页
+      if(!r.ok)throw new Error((j&&j.detail)||('HTTP '+r.status));return j},
+    fmt(n){return (n??0).toLocaleString()},num(n){return Number.isFinite(+n)?+n:0},gb(b){return b?(b/1e9).toFixed(b>1e10?0:2)+' GB':''},
+    colorOf(k){return {done:'var(--green)',failed:'var(--red)',probing:'var(--blue)',feeding:'var(--blue)',extracted:'var(--orange)'}[k]||'var(--fg)'},
+    async tick(){try{this.s=await this.api('status');this.spark();if(this.tab==='log')this.events=await this.api('events?n=200')}catch(e){}},
+    async ctl(a,reload){   /* ⚠️别在模板里写 setTimeout:Vue 模板表达式在组件实例上解析,拿不到全局函数 —— 原来那句 load() 从来没执行过 */
+      try{const r=await this.api('control/'+a,{method:'POST'});this.msg=(r&&r.msg)||{pause:'已暂停',resume:'已恢复','feed-now':'已触发入库,看日志','reverify-failed':'后台重核中,看日志','reset-breaker':'熔断已重置'}[a]||'已执行'}
+      catch(e){this.msg='操作失败: '+e.message}
+      this.tick();this.loadSettings();if(reload){await new Promise(r=>setTimeout(r,600));this.load()}},
+    go(t){this.tab=t;if(t==='items')this.load();if(t==='settings'){this.loadCookie();this.api('paths/check').then(r=>this.pc=r)}if(t==='log')this.tick()},
+    async load(){const q=new URLSearchParams({status:this.f.status,q:this.f.q,page:this.page});this.list=await this.api('items?'+q)},
+    async retry(id){await this.api(`items/${id}/retry`,{method:'POST'});this.load()},
+    async setCap(v){const old=this.st.capture_mode;this.st.capture_mode=v;
+      try{await this.saveSettings()}catch(e){this.st.capture_mode=old;this.msg='截图模式没保存成功: '+e.message}},
+    async dlCsv(){
+      try{const r=await fetch('/api/export/failed.csv');
+        if(r.status===401){location.href='/login';return}
+        if(!r.ok){this.msg='导出失败: HTTP '+r.status;return}
+        const b=await r.blob(),u=URL.createObjectURL(b),a=document.createElement('a');
+        a.href=u;a.download='failed.csv';a.click();URL.revokeObjectURL(u)}
+      catch(e){this.msg='导出失败: '+e.message}},
+    async ctlMsg(a,okMsg){await this.ctl(a);if(!String(this.msg||'').startsWith('操作失败'))this.msg=this.msg||okMsg},
+    async logout(){await fetch('/api/logout',{method:'POST'});location.href='/login'},
+    async setPw(){
+      if(this.pw.new1!==this.pw.new2){this.msg='两次输入的新密码不一致';return}
+      if(!this.pw.new1&&!confirm('新密码留空 = 关闭登录,任何人都能打开这个页面。确定?'))return
+      try{const r=await this.api('auth/set',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({user:this.st.auth_user||'root',password:this.pw.new1,old_password:this.pw.old})}, true);   /* 旧用户名交给后端从库里取(别把改好的新名字当旧名送);true=401 别跳登录页 */
+        this.msg=r.enabled?'登录口令已更新':'已关闭登录';this.pw={old:'',new1:'',new2:''};this.tick()}
+      catch(e){this.msg='设置口令失败: '+e.message}},
+    async cap(id){if(this.capBusy)return;this.capBusy=id;try{const r=await this.api(`items/${id}/capture`,{method:'POST'});this.msg=r.ok?'截图完成,下一批入库':('截图失败: '+r.thumb_err)}catch(e){this.msg='截图失败: '+e.message}finally{this.capBusy=0}this.load()},
+    async loadSettings(){const r=await this.api('settings');this.st=r.values;this.groups=r.groups;this.clamps=r.clamps||{}},
+    async saveSettings(){const b={};for(const k in this.st){if(k!=='paused'&&k!=='auth_user')b[k]=this.st[k]}   /* 用户名只走「保存口令」(后端要验旧密码),塞进来会被丢掉 */
+      const before=JSON.stringify(b);
+      try{const r=await this.api('settings',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify(b)});
+        const u=this.st.auth_user,uOld=r.values.auth_user;this.st=r.values;if(u!==undefined)this.st.auth_user=u;   /* 别让整份回填把正在改的用户名弹回去 */
+        /* 被钳边的字段要说出来,否则用户填了 999 只看到「已保存」,输入框却悄悄变成 20 */
+        const clamped=Object.keys(b).filter(k=>typeof b[k]==='number'&&r.values[k]!==b[k]);
+        let m='已保存 '+new Date().toLocaleTimeString();
+        if(clamped.length)m+=' · 这些超出范围已贴边: '+clamped.map(k=>k+'→'+r.values[k]).join(', ');
+        if(u!==undefined&&u!==uOld)m+=' · ⚠️用户名没保存,要填当前密码后点「保存口令」';
+        this.msg=m}catch(e){this.msg='保存失败: '+e.message}},
+    async hostCheck(){await this.saveSettings();this.hc=await this.api('host/check');this.pc=await this.api('paths/check')},
+    async embyTest(){await this.saveSettings();this.et=await this.api('emby/test',{method:'POST'})},
+    async keygen(){try{await this.api('ssh/keygen',{method:'POST'});this.pc=await this.api('paths/check')}catch(e){this.msg=e.message}},
+    async bump(d){const v=Math.min((this.clamps.probe_workers||[1,3])[1],Math.max(1,Number(this.st.probe_workers||3)+d));this.st.probe_workers=v;await this.api('settings',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({probe_workers:v})})},
+    async sync(){const r=await this.api('worklist/sync',{method:'POST'});this.msg=r.msg},
+    async loadCookie(){this.ck=await this.api('cookie')},
+    async checkCookie(){this.ck={...this.ck,...await this.api('cookie/check',{method:'POST'})};this.ckMsg=this.ck.ok?'有效':'无效:'+this.ck.err;this.ckMsgErr=!this.ck.ok},
+    async saveCookie(){try{const r=await this.api('cookie',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({cookie:this.newCookie})});this.ckMsg=`已切换到账号 ${r.user_id}(VIP ${r.vip})`;this.ckMsgErr=false;this.newCookie='';this.loadCookie()}catch(e){this.ckMsg=e.message;this.ckMsgErr=true}},
+    base(p){return (p||'').split('/').pop()},ts(t){return new Date(t*1000).toLocaleString()},
+    spark(){const c=this.$refs.spark;if(!c)return;const h=this.s.net.hist||[];const ctx=c.getContext('2d');const W=c.width,H=c.height;ctx.clearRect(0,0,W,H);if(h.length<2)return;const max=Math.max(1,...h.map(x=>x[1]));ctx.beginPath();h.forEach((x,i)=>{const px=i/(h.length-1)*W,py=H-2-(x[1]/max)*(H-4);i?ctx.lineTo(px,py):ctx.moveTo(px,py)});ctx.strokeStyle='#0a84ff';ctx.lineWidth=1.5;ctx.stroke()},
+    mk(c){const grid=getComputedStyle(document.documentElement).getPropertyValue('--line').trim();const tick=getComputedStyle(document.documentElement).getPropertyValue('--fg2').trim();
+      return new Chart(document.getElementById(c.id),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:c.color,backgroundColor:c.color+'22',fill:true,pointRadius:0,tension:.35,borderWidth:1.8}]},
+        options:{animation:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:tick,maxTicksLimit:5,font:{size:window.innerWidth<640?12:11}},grid:{color:grid}},y:{ticks:{color:tick,font:{size:window.innerWidth<640?12:11}},grid:{color:grid},beginAtZero:true}}}})},
+    async charts$(){for(const c of this.chartDefs){const ch=CH[c.id];if(!ch)continue;const d=await this.api(`metrics?key=${c.key}&hours=6`);ch.data.labels=d.map(x=>new Date(x.ts*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));ch.data.datasets[0].data=d.map(x=>x.value);ch.update()}}
+  },
+  async mounted(){
+    for(const c of this.chartDefs)CH[c.id]=this.mk(c);
+    setInterval(()=>{if(!document.hidden)this.tick()},2000);setInterval(()=>{if(!document.hidden)this.charts$()},30000);   // 先装定时器:容器还在启动时打开页面也能自己恢复
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden){this.tick();this.charts$()}});
+    const safe=async(f,what)=>{try{await f()}catch(e){this.msg=what+'失败: '+e.message}};
+    await safe(()=>this.tick(),'读状态');await safe(()=>this.loadSettings(),'读设置');await safe(()=>this.charts$(),'读图表');await safe(()=>this.loadCookie(),'读 cookie')}
+}).mount('#app');
+</script></body></html>
