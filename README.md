@@ -255,7 +255,7 @@ UID=xxxxxxx_A1_xxxxxxxxxx; CID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx; SEID=xxxx...; K
 
 ### 5. 同步待办清单
 
-**设置** → `运行` 分组底下 → **同步待办清单**。
+顶部的 **同步 Emby 库** 按钮(设置 → `运行` 分组底下的「同步待办清单」是同一个功能)。
 
 它会在 Emby 那台机器上对 `library.db` 做一次完整快照(`VACUUM INTO`),然后算出哪些条目缺媒体信息。几十秒到几分钟。
 
@@ -300,6 +300,7 @@ UID=xxxxxxx_A1_xxxxxxxxxx; CID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx; SEID=xxxx...; K
 |---|---|
 | 暂停 / 恢复 | 顶部按钮。暂停会让排队中的任务也停下来 |
 | 立刻入库(不等攒够一批) | 顶部「立即入库」 |
+| 拉取 Emby 新入库 / 改名后的条目 | 顶部「同步 Emby 库」(鼠标悬停看上次同步时间)。重启**不会**自动同步;自动同步只在待办清空后按 `worklist_sync_hours` 触发 |
 | 重试所有失败的 | 条目页 → 状态选「失败」→「失败全部重试」 |
 | 重试失败的截图 | 条目页 →「重试截图失败」。ISO、被排除的容器、Emby 已有封面的不会被重置(按钮会告诉你还剩多少) |
 | 核实「入库后 Emby 仍无记录」的 | 条目页 →「入库失败重核」。这类失败每小时也会自动重核一次 |

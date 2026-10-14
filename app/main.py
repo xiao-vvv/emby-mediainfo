@@ -86,7 +86,10 @@ CAP_LOCK = threading.Semaphore(2)   # 手动截图是同步阻塞的,放开了�
 
 # ---------- 状态 ----------
 @app.get('/api/status')
-def status(): return PIPE.status()
+def status():
+    r = PIPE.status()
+    r['syncing'] = SYNC_LOCK.locked(); r['last_sync_at'] = float(db.setting('_last_sync_at') or 0) or None   # 顶栏「同步 Emby 库」按钮用
+    return r
 @app.get('/api/events')
 def events(n: int = 100): return [dict(r) for r in db.q('select * from events order by id desc limit ?', (max(1, min(1000, n)),))]
 @app.get('/api/metrics')

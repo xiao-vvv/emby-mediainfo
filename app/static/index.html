@@ -146,6 +146,7 @@ th:nth-child(8),td:nth-child(8){width:132px}   /* 一行两个按钮各 57px;原
   <span class="sp"></span>
   <button class="btn soft" v-if="!s.paused" @click="ctl('pause')">暂停</button><button class="btn" v-else @click="ctl('resume')">继续</button>
   <button class="btn soft" :disabled="s.paused||s.feed_phase&&s.feed_phase!=='idle'" @click="ctl('feed-now')">立即入库</button>
+  <button class="btn soft" :disabled="s.syncing" @click="sync" :title="'在 Emby 主机做库快照,拉取新入库/改名后的条目。上次同步:'+(s.last_sync_at?new Date(s.last_sync_at*1000).toLocaleString():'从未')">{{ s.syncing?'同步中…':'同步 Emby 库' }}</button>
   <button class="btn soft" v-if="s.auth" @click="logout">退出登录</button>
   <button class="btn red" v-if="s.breaker.tripped" @click="ctl('reset-breaker')">重置熔断</button>
 </header>
@@ -346,7 +347,7 @@ createApp({
     async embyTest(){await this.saveSettings();this.et=await this.api('emby/test',{method:'POST'})},
     async keygen(){try{await this.api('ssh/keygen',{method:'POST'});this.pc=await this.api('paths/check')}catch(e){this.msg=e.message}},
     async bump(d){const v=Math.min((this.clamps.probe_workers||[1,3])[1],Math.max(1,Number(this.st.probe_workers||3)+d));this.st.probe_workers=v;await this.api('settings',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({probe_workers:v})})},
-    async sync(){const r=await this.api('worklist/sync',{method:'POST'});this.msg=r.msg},
+    async sync(){try{const r=await this.api('worklist/sync',{method:'POST'});this.msg=r.msg;this.s.syncing=r.ok!==false||this.s.syncing}catch(e){this.msg='同步失败: '+e.message}},
     async loadCookie(){this.ck=await this.api('cookie')},
     async checkCookie(){this.ck={...this.ck,...await this.api('cookie/check',{method:'POST'})};this.ckMsg=this.ck.ok?'有效':'无效:'+this.ck.err;this.ckMsgErr=!this.ck.ok},
     async saveCookie(){try{const r=await this.api('cookie',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({cookie:this.newCookie})});this.ckMsg=`已切换到账号 ${r.user_id}(VIP ${r.vip})`;this.ckMsgErr=false;this.newCookie='';this.loadCookie()}catch(e){this.ckMsg=e.message;this.ckMsgErr=true}},
