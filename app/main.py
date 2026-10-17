@@ -155,7 +155,7 @@ def control(action: str):
         # ⚠️批量重试不清 size_ok:那是我们自己从 CD2 读出来核实过的体积,清掉后下一轮又会被 115 清单里的错数字覆盖,
         #   于是又判「读不全」→ 再走一遍慢五倍的 CD2;CD2 要是已经不挂了,这条就永远过不了校验。
         #   想纠正个别核错的,用条目上的单条重试(那是明确的人工动作)
-        n = db.x("update items set status='pending', attempts=0 where status='failed'")
+        n = db.x("update items set status='pending', attempts=0, fed_at=null where status='failed'")   # fed_at 清掉:否则再次停泊时 coalesce(fed_at,…) 吃到旧值,一进停泊就被判「等太久」
         # 顺手救「还是 pending 但 attempts 已经用满」的:调小过 max_retries 就会造出这种谁都不捡的条目
         n += db.x("update items set attempts=0 where status='pending' and attempts >= ?", (int(db.setting('max_retries')),))
         db.log('info', f'失败重试:共放回 {n} 条')
@@ -191,7 +191,7 @@ def retry(id: int):
     if not db.q('select 1 from items where id=?', (id,)): raise HTTPException(404)   # 不存在的 id 别回 ok,前端会以为放回去了
     # ⚠️正在探测/正在入库的不许插队重置:一改成 pending,调度器会立刻再排一个任务,
     #   两个线程写同一份 sidecar、同一张 jpg,半截文件就这么进了生产 Emby
-    n = db.x("update items set status='pending', attempts=0, error=null, priority=1, size_ok=0, updated_at=?"
+    n = db.x("update items set status='pending', attempts=0, error=null, priority=1, size_ok=0, fed_at=null, updated_at=?"
              " where id=? and status not in ('probing','feeding')", (time.time(), id))
     if not n: raise HTTPException(409, '这条正在处理中(探测/入库),等它跑完再重试')
     return {'ok': True}
@@ -331,9 +331,14 @@ def worklist_sync():
                 part = gone[c:c+900]
                 db.x(f"update items set status='skipped', error='Emby 已有媒体信息(同步时发现)' where id in ({','.join('?'*len(part))})", part)
             db.log('info', f"待办同步完成: 无媒体信息 {meta.get('no_mediainfo')} / strm 条目 {meta.get('total_strm_items')} / 读不到 strm {meta.get('unreadable')}; 候选 {len(rows)}, 缺封面 {len(need)}(其中电影缺背景图 {len(need_bd)}), 标记跳过 {len(gone)}; 主机耗时 {meta.get('seconds')}s")
-        except Exception as e: db.log('error', f'待办同步失败: {str(e)[:400]}')
-        finally:
             db.set_setting('_last_sync_at', time.time())   # 谁发起的都算数:自动同步读这个,才不会在手动同步刚跑完之后又跑一遍
+            try: PIPE.start_round()                          # 进度从 0 起算:本轮 = 同步完这一刻还没做完的
+            except Exception as e: db.log('warn', f'本轮进度基线没刷新(同步本身已完成): {str(e)[:200]}')
+        except Exception as e:
+            # ⚠️失败不能算「同步过」:原来 finally 里无条件写 _last_sync_at,到点那一下 SSH/Emby 主机恰好不通,
+            #   自动同步就静默顺延一整个周期,顶栏还显示一个很远的「下次同步」。失败只记失败时刻,30 分钟后再试
+            db.set_setting('_last_sync_fail_at', time.time()); db.log('error', f'待办同步失败: {str(e)[:400]}')
+        finally:
             SYNC_LOCK.release()
     try: threading.Thread(target=job, daemon=True).start()
     except Exception as e:

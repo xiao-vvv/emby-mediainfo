@@ -63,7 +63,8 @@ CLAMPS = {
     'api_interval': (0.5, 60),   # 🔴下限 0.5 = 最多 2 次/秒:115 的 WAF 很敏感,填 0 时贴边到 0.05 等于允许 20 次/秒
     'url_batch': (1, 200), 'probe_timeout': (10, 3600),
     'feed_batch': (1, 5000),   # 上限从 20000 收到 5000:实测 5000 条的 sidecar 就是 98MB 内容 / RSS +130MB,
-                               # ssh 模式还要再叠 tar 缓冲和一次 getvalue 拷贝 ≈ 3 倍峰值 —— 20000 能把小内存容器直接 OOM 'feed_interval': (60, 86400), 'refresh_interval': (0.0, 10), 'latency_threshold': (0.05, 60),
+                               # ssh 模式还要再叠 tar 缓冲和一次 getvalue 拷贝 ≈ 3 倍峰值 —— 20000 能把小内存容器直接 OOM
+    'feed_interval': (60, 86400), 'refresh_interval': (0.0, 10), 'latency_threshold': (0.05, 60),   # ⚠️这三项曾被上一行的注释吞掉(字符串末尾没换行),等于没钳位
     'dir_cache_ttl': (60, 86400), 'max_retries': (1, 20), 'worklist_sync_hours': (0, 720),
     'capture_position': (1, 95), 'capture_quality': (1, 31), 'ssh_port': (1, 65535), 'trust_proxy': (0, 1),
 }

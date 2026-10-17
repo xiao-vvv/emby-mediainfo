@@ -37,10 +37,10 @@ class LocalHost:
                 **({'err': ';'.join(errs)} if errs else {})}
     def emby_info(self): return hostlib.emby_info(host_cfg())
     def fetch_worklist(self): return hostlib.build_worklist({**host_cfg(), 'want_thumb': db.setting('capture_mode') != 'off'}, snapshot_dir='/config')
-    def ingest(self, batch_id, files, ids, interval, thr, thumb_ids=None, backdrop_ids=None, thumb_files=None):
+    def ingest(self, batch_id, files, ids, interval, thr, thumb_ids=None, backdrop_ids=None, thumb_files=None, canary_wait=None):
         cfg = host_cfg()
         return hostlib.ingest(cfg, ids, interval, thr, thumb_ids, images=hostlib.split_images(files), backdrop_ids=backdrop_ids,
-                              files=files, thumb_files=thumb_files)
+                              files=files, thumb_files=thumb_files, canary_wait=canary_wait or hostlib.CANARY_WAIT_MIN)
     def verify(self, ids): return hostlib.verify(host_cfg(), ids)
 
 class SshHost:
@@ -158,14 +158,14 @@ class SshHost:
         q = shlex.quote(rd); rc, o, e = self._run(f'{PY} {q}/hostlib.py {q}/cfg.json verify {q}/{name}; rc=$?; rm -f {q}/{name}; exit $rc', 3600)   # 直接接 rm 会把退出码换成 rm 的
         if rc != 0: raise RuntimeError('verify 失败: ' + (e or o)[-300:])
         return _last_json(o, 'verify')
-    def ingest(self, batch_id, files, ids, interval, thr, thumb_ids=None, backdrop_ids=None, thumb_files=None):
+    def ingest(self, batch_id, files, ids, interval, thr, thumb_ids=None, backdrop_ids=None, thumb_files=None, canary_wait=None):
         rd = self._prep(); buf = io.BytesIO()
         with tarfile.open(fileobj=buf, mode='w:gz') as t:
             for rel, content in files.items():
                 b = content if isinstance(content, bytes) else content.encode('utf-8'); ti = tarfile.TarInfo(rel.lstrip('/')); ti.size = len(b); ti.mtime = int(time.time()); ti.mode = 0o644
                 t.addfile(ti, io.BytesIO(b))
             m = json.dumps({'ids': ids, 'interval': interval, 'latency_threshold': thr, 'thumb_ids': thumb_ids or [], 'backdrop_ids': backdrop_ids or [],
-                            'thumb_files': thumb_files or {}}).encode()
+                            'thumb_files': thumb_files or {}, 'canary_wait': canary_wait or hostlib.CANARY_WAIT_MIN}).encode()
             ti = tarfile.TarInfo('_manifest.json'); ti.size = len(m); ti.mtime = int(time.time()); t.addfile(ti, io.BytesIO(m))
         remote = f'{rd}/inbox/{batch_id}.tgz'
         self._push({remote: buf.getvalue()})

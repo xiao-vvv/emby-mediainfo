@@ -8,7 +8,7 @@ cfg 字段:
   strm_root         该前缀在「本机」对应的真实目录(如 /mnt/media/strm)
   mediainfo_root    神医「媒体信息」根目录(本机真实路径,如 /mnt/media/mediainfo)
 """
-import os, re, json, sqlite3, time, tarfile, urllib.request, tempfile, base64
+import os, re, json, sqlite3, time, tarfile, urllib.request, urllib.error, tempfile, base64
 
 # ---------------- 待办清单 ----------------
 def build_worklist(cfg, snapshot_dir=None):
@@ -92,11 +92,16 @@ def latency(cfg):
     t = time.time()
     try: _get(cfg, '/emby/Items/Counts'); return round(time.time() - t, 3)
     except Exception: return 99.0
+GONE = -2                  # 条目在 Emby 里已经不存在(被删/改名后重建成了新 id)。和 -1「查不到」必须分开:-1 要等,-2 要收工
+
 def item_state(cfg, item_id):
-    """(流数, 有无 Primary 图, 有无背景图);查询出错 → (-1, False, False)"""
+    """(流数, 有无 Primary 图, 有无背景图);条目不存在(404)→ (GONE, False, False);查询出错 → (-1, False, False)"""
     try:
         d = _get(cfg, f"/emby/Users/{cfg['emby_user_id']}/Items/{item_id}?Fields=MediaStreams")
         return len(d.get('MediaStreams') or []), bool((d.get('ImageTags') or {}).get('Primary')), bool(d.get('BackdropImageTags'))
+    except urllib.error.HTTPError as e:
+        # 🔴只认 404。线上有 384 条从 9-19 起一直「等 Emby 消化」,就是因为条目早被删了而这里一律回 -1(=再等等)
+        return (GONE, False, False) if e.code == 404 else (-1, False, False)
     except Exception: return -1, False, False
 
 _BATCH = {'ok': None}      # None=还没对照过 / True=可信 / False=退回逐条
@@ -124,19 +129,47 @@ def _batch_trustworthy(cfg, sample):
     if not have_n or not have_p: return False
     return all(item_state(cfg, i)[0] > 0 for i in have_n) and all(item_state(cfg, i)[1] for i in have_p)
 
+_NOTES = []                # states() 里发现的异常情况,由 verify()/ingest() 带回给调用方记日志(远程模式下这里没有日志可写)
+
+def _gone_control(cfg):
+    """判 GONE 前的对照:配置里的用户本身能不能 GET 到。用户 Id 填错 / 反代对未知路由回 404 时,所有条目都会 404,
+    那不是「条目没了」而是环境问题。对照不过 → 这次所有 GONE 都降级成 -1(再等等),一条都不收工"""
+    try: return bool((_get(cfg, f"/emby/Users/{cfg['emby_user_id']}", 15) or {}).get('Id'))
+    except Exception: return False
+
 def states(cfg, ids, progress=None, what='query'):
     """一批条目的 {id: (流数, 有无Primary, 有无背景图)}。能批量就批量,不行退回逐条(行为与逐条完全一致)。
+    🔴GONE 是「失败开门」型结论(收工且不可逆),所以多两道闸:几乎整批都 404 → 不信;对照用户也 404 → 不信。
+      不加闸的话,emby_user_id 填错一次,几分钟内整个待办都会被打成 skipped,而旧逻辑同样输入是零损失"""
+    out = _states_raw(cfg, ids, progress, what)
+    gone = [i for i, v in out.items() if v[0] == GONE]
+    if gone:
+        bad = None
+        if len(gone) >= max(50, 0.9 * len(out)): bad = f'{len(gone)}/{len(out)} 条都 404(多半是 Emby 地址/用户 Id 配错,或该用户没有这个媒体库的权限)'
+        elif not _gone_control(cfg): bad = f'{len(gone)} 条 404,但对照用户也查不到(Emby 地址/用户 Id 配错?)'
+        if bad:
+            for i in gone: out[i] = (-1, False, False)
+            _NOTES.append('404 不作「条目已删除」处理:' + bad)
+    return out
+
+def _states_raw(cfg, ids, progress=None, what='query'):
+    """见 states()。
     ⚠️这是本文件最热的一段:线上一批 1800 条,逐条 GET 光来回就要两三分钟,
       而一个复核不上的批次要把这件事重复十几遍 —— 实测 48 小时里有 8.2 小时耗在这。"""
     ids = list(ids)
     if not ids: return {}
+    confirmed = 0
     if _BATCH['ok'] is not False:
         try:
             out = {}
             for c in range(0, len(ids), 100):
                 part = ids[c:c + 100]
                 got = _batch_fetch(cfg, part)
-                for i in part: out[i] = got.get(i, (-1, False, False))   # 查不到 = 未知,和逐条 404→-1 一个口径
+                for i in part: out[i] = got.get(i, (-1, False, False))   # 查不到先记未知,下面挑一部分单独确认是不是真没了
+                # ⚠️批量接口对不存在的 id 只是不返回,分不清「没了」和「这次没查到」;逐条 GET 才有 404。
+                #   每次调用最多确认 100 个:一个 GET 几十毫秒,100 个也就几秒;剩下的留给下一轮,反正 -1 不会被判死
+                for i in [i for i in part if i not in got][:max(0, 100 - confirmed)]:
+                    out[i] = item_state(cfg, i); confirmed += 1
                 if _BATCH['ok'] is None and not _batch_trustworthy(cfg, {i: out[i] for i in part}):
                     _BATCH['ok'] = False
                     raise ValueError('批量查询没通过正向对照,退回逐条')
@@ -154,23 +187,34 @@ def states(cfg, ids, progress=None, what='query'):
 CANARY_N = 25
 CANARY_MIN = 200          # 批次小于这个数就别探路了,探路本身的开销占比太高
 
-def _canary(cfg, cand, interval, progress=None):
-    """先拿一小撮探路:刷新它们,等一会看有没有进库。返回进库的条数。
+CANARY_WAIT_MIN, CANARY_WAIT_MAX = 65, 900
+
+def _canary(cfg, cand, interval, progress=None, budget=CANARY_WAIT_MIN):
+    """先拿一小撮探路:刷新它们,等一会看有没有进库。返回 (进库的条数, 从发出刷新到看见进库用了几秒)。
     🔴一条都没进 = Emby 现在吃不进刷新(多半在跑扫描/刷演员这类计划任务)。
       这时候再拿整批 1800 条去撞,就是十几分钟换零产出 —— 线上 48 小时实测有 8.2 小时是这么烧掉的,
-      而且发完还会立刻原样重发,一轮接一轮。探路 75 秒就能把这件事问清楚。"""
+      而且发完还会立刻原样重发,一轮接一轮。
+    ⚠️等多久不能写死:10-17 实测 Emby 的刷新队列排到 5~13 分钟(新剧刷新要逐集查 TMDB),
+      固定等 65 秒就是「永远判它吃不进」—— 整天只有探路那 25 条在进库,其余 1,200 多条原地转圈。
+      所以预算由调用方按上一次量到的队列延迟给(budget),这里只负责在预算内每 15 秒看一眼、看到就走。"""
     probe = list(cand)[:CANARY_N]
+    t_sent = time.time()
     for i in probe:
         try: refresh(cfg, i)
         except Exception: pass
         time.sleep(interval)
-    for wait in (8, 12, 20, 25):
+    # ⚠️预算从「发完」起算,不含发送那 25×interval:否则 refresh_interval 调到 2.3 秒以上会一次都不检查就判 busy,
+    #   默认 0.3 时也只等 48 秒,比原来的 65 秒还短 —— 与「等久一点」的意图正好相反
+    t0 = time.time(); budget = max(CANARY_WAIT_MIN, min(CANARY_WAIT_MAX, float(budget or 0)))
+    waits = [8, 12, 20, 25] + [15] * 60          # 65 秒预算恰好是原来那四次检查
+    for wait in waits:
+        if time.time() - t0 + wait > budget: break
         time.sleep(wait)
         st = states(cfg, probe, progress, 'canary')
         ok = sum(1 for v in st.values() if v[0] > 0)
-        if progress: progress(f'canary {ok}/{len(probe)}')
-        if ok: return ok
-    return 0
+        if progress: progress(f'canary {ok}/{len(probe)} {int(time.time() - t0)}s/{int(budget)}s')
+        if ok: return ok, round(time.time() - t_sent)   # 用时从第一条刷新发出算:这才是 Emby 队列延迟
+    return 0, round(time.time() - t_sent)
 def upload_image(cfg, item_id, itype, data):
     """把图片交给 Emby 存(POST /Items/{id}/Images/{Type},正文 base64)。Emby 按媒体库设置决定落在媒体旁边还是 metadata 目录,与原生截图同一条路"""
     url = cfg['emby_url'].rstrip('/') + f"/emby/Items/{item_id}/Images/{itype}?api_key={cfg['emby_api_key']}"
@@ -229,8 +273,9 @@ def write_sidecars(cfg, files, errors=None, progress=None):
             else: errors[rel] = _clean(e, cfg)[:160]
         except Exception as e: errors[rel] = _clean(e, cfg)[:160]
     return n
-def ingest(cfg, ids, interval=0.3, latency_threshold=1.0, thumb_ids=None, progress=None, images=None, backdrop_ids=None, files=None, thumb_files=None):
+def ingest(cfg, ids, interval=0.3, latency_threshold=1.0, thumb_ids=None, progress=None, images=None, backdrop_ids=None, files=None, thumb_files=None, canary_wait=CANARY_WAIT_MIN):
     """逐条 Refresh(限速+延迟看门狗),先 GET 判「Emby 已有→跳过」,末尾 API 复核。
+    canary_wait:探路最多等几秒(调用方按上次量到的 Emby 队列延迟给);gone:预检时 Emby 回 404 的 id(条目没了,不刷新、不算失败)
     thumb_ids:这批里带截图、要复核 Primary 图的 id。查询出错(-1)一律记 unverified,不当失败。progress:每 20 条回调(远程模式打心跳)
     images:{id: jpg bytes} 经 API 上传当海报的(电影);backdrop_ids:其中没有背景图时同一张也上传为背景图的 id
     files:要落盘的文件(媒体信息 json 等),预检前就写;thumb_files:{id: 相对路径},只给预检时确认仍缺封面的条目落盘(别覆盖人家已有的剧照)"""
@@ -238,7 +283,7 @@ def ingest(cfg, ids, interval=0.3, latency_threshold=1.0, thumb_ids=None, progre
                              'backdrop_done': [], 'backdrop_failed': {}, 'lat': [latency(cfg)], 'slowdowns': 0}
     thumb_ids = set(thumb_ids or []); images = images or {}; backdrop_ids = set(backdrop_ids or []); todo = []; only_thumb = []; pre_state = {}
     files = dict(files or {}); thumb_files = {int(k): v for k, v in (thumb_files or {}).items()}
-    res['write_failed'] = {}
+    res['write_failed'] = {}; res['gone'] = []
     thumb_rels = set(thumb_files.values())
     if files: write_sidecars(cfg, {k: v for k, v in files.items() if k not in thumb_rels}, res['write_failed'], progress)
     # 🔴一份都写不进去(媒体信息目录只读/满盘)就别往下走了。
@@ -254,24 +299,34 @@ def ingest(cfg, ids, interval=0.3, latency_threshold=1.0, thumb_ids=None, progre
     pre_state = states(cfg, ids, progress, 'precheck')              # 每条最坏 30s(GET 超时),间隔太大会撞上本地的空闲超时
     for i in ids:
         n, has_p, has_bd = pre_state.get(i, (-1, False, False))
+        if n == GONE: res['gone'].append(i); thumb_ids.discard(i); continue   # 条目没了:不刷新、不传图、不算失败
         if n > 0:
             res['skipped'].append(i)
             if i in thumb_ids and not has_p: only_thumb.append(i)   # 媒体信息已有,只为截图刷一次
         else: todo.append(i)                                       # 0 或 -1(未知)都刷一遍,刷新是幂等的
     # 先探路再决定要不要发整批(见 _canary)。只拿真正缺媒体信息的去探 —— only_thumb 那些本来就查得到流
     if len(todo) >= CANARY_MIN:
-        if _canary(cfg, todo, interval, progress) == 0:
-            res['unverified'] = list(ids)
+        ok, lag = _canary(cfg, todo, interval, progress, canary_wait)
+        if ok == 0:
+            probe = list(todo)[:CANARY_N]
+            # 🔴分清楚谁被刷新过:探路那 25 条刷新已发出(停泊等 Emby 消化),其余的**一次都没发**,要原样退回可重发。
+            #   原来是整批标成「已刷新,等 Emby 消化」—— 没发过的 1,200 多条就这么挂 6 小时、放回、再探路失败、再挂,循环一整天
+            res['parked'] = probe; res['not_sent'] = [i for i in ids if i not in set(probe) and i not in set(res['gone'])]
+            res['unverified'] = []
             res['skipped'] = []; res['done'] = []                  # 探路没过就等于什么都没做,别报「跳过 N 条」
             res['busy'] = True
             res['seconds'] = round(time.time() - t0, 1)
-            res['note'] = f'探路 {min(CANARY_N, len(todo))} 条无一进库,判定 Emby 暂时吃不进刷新,本批原样退回(没有刷新其余条目)'
+            res['note'] = f'探路 {len(probe)} 条等了 {lag}s 无一进库,判定 Emby 暂时吃不进刷新,本批退回(其余条目没有刷新)'
+            res['waited'] = lag                                    # 调用方据此把下次预算抬上去:Emby 显然比这更慢
+            if _NOTES: res['note_gone'] = '; '.join(_NOTES); _NOTES.clear()
             return res
+        res['lag'] = lag                                           # 实测队列延迟,调用方拿去定下次探路的预算
     todo = todo + only_thumb
     # 剧集截图:预检说还缺封面的才落盘(Emby 这会儿已经有图了就别放我们的截图进去覆盖)
     skipped_thumbs = {}
     for k, (i, rel) in enumerate(thumb_files.items()):
         n, has_p, _ = pre_state.get(i, (-1, False, False))
+        if n == GONE: continue                                      # 条目没了:别把 -thumb.jpg 写到 strm 旁边当孤儿(还会建出不存在的目录)
         if has_p: skipped_thumbs[i] = 'Emby 已有封面,不覆盖'; thumb_ids.discard(i)
         elif rel in files:
             write_sidecars(cfg, {rel: files[rel]}, res['write_failed'])
@@ -319,6 +374,9 @@ def ingest(cfg, ids, interval=0.3, latency_threshold=1.0, thumb_ids=None, progre
         try:
             code = refresh(cfg, i)
             if code not in (200, 204): res['failed'][i] = f'refresh http {code}'
+        except urllib.error.HTTPError as e:
+            if e.code == 404: res['gone'].append(i); thumb_ids.discard(i)   # 预检只逐条确认前 100 个,剩下的在这儿补上;调用方按整批比例再把一道闸
+            else: res['failed'][i] = 'refresh ' + _clean(e, cfg)[:120]
         except Exception as e: res['failed'][i] = 'refresh ' + _clean(e, cfg)[:120]
         time.sleep(interval)
         if (k + 1) % 20 == 0:
@@ -364,6 +422,7 @@ def ingest(cfg, ids, interval=0.3, latency_threshold=1.0, thumb_ids=None, progre
         else: res['thumb_unverified'].append(i)                     # 图还没被 Emby 认下:重发同一张(文件还在本地),次数满了才退场
         if i in backdrop_ids and i not in res['backdrop_failed'] and i not in res['backdrop_done'] and has_bd: res['backdrop_done'].append(i)
     res['seconds'] = round(time.time() - t0, 1)
+    if _NOTES: res['note_gone'] = '; '.join(_NOTES); _NOTES.clear()
     return res
 def _heartbeat(stop, every=60):
     """🔴定时心跳,和进度无关。
@@ -399,11 +458,13 @@ def _do_ingest(cfg, man, files):
     import sys
     return ingest(cfg, man['ids'], float(man.get('interval', 0.3)), float(man.get('latency_threshold', 1.0)), man.get('thumb_ids'),
                   progress=lambda m: (print('# ' + m), sys.stdout.flush()), images=split_images(files), backdrop_ids=man.get('backdrop_ids'),
-                  files=files, thumb_files=man.get('thumb_files'))
+                  files=files, thumb_files=man.get('thumb_files'), canary_wait=float(man.get('canary_wait') or CANARY_WAIT_MIN))
 
 def verify(cfg, ids):
-    """{id: [流数, 有无Primary图, 有无背景图]},用于中断后核实"""
-    return {str(i): list(v) for i, v in states(cfg, ids, None, 'verify').items()}   # 每小时的「入库失败重核」也走批量,原来是逐条
+    """{id: [流数, 有无Primary图, 有无背景图]},用于中断后核实;另带 '_note'(有的话)= states() 里的异常说明,调用方记日志"""
+    d = {str(i): list(v) for i, v in states(cfg, ids, None, 'verify').items()}
+    if _NOTES: d['_note'] = '; '.join(_NOTES); _NOTES.clear()
+    return d   # 每小时的「入库失败重核」也走批量,原来是逐条
 
 # ---------------- 路径体检 ----------------
 def check_paths(cfg):

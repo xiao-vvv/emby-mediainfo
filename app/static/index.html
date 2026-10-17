@@ -3,7 +3,6 @@
 <title>Media Info · emby-mediainfo</title>
 <link rel="icon" href="/favicon.ico">
 <script src="/static/vendor/vue.global.prod.js"></script>
-<script src="/static/vendor/chart.umd.min.js"></script>
 <style>
 :root{
   color-scheme:light dark;
@@ -58,7 +57,7 @@ main{padding:14px 18px 40px;max-width:1360px;margin:0 auto;display:grid;gap:14px
 .btn.soft{background:var(--glass2);color:var(--fg);border:1px solid var(--line)}.btn.red{background:var(--red)}.btn.green{background:var(--green);color:#03240f}
 .row{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.sp{flex:1}
 /* 表格 */
-table{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixed}th:nth-child(1){width:84px}th:nth-child(2){width:64px}th:nth-child(4){width:120px}th:nth-child(5){width:64px}th:nth-child(6){width:76px}th:nth-child(7){width:26%}th:nth-child(8){width:64px}th{color:var(--fg2);font-weight:500;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
+table{width:100%;border-collapse:collapse;font-size:13.5px;table-layout:fixed}th:nth-child(1){width:84px}th:nth-child(2){width:64px}th:nth-child(4){width:176px}td:nth-child(4){white-space:normal}th:nth-child(5){width:64px}th:nth-child(6){width:76px}th:nth-child(7){width:26%}th:nth-child(8){width:64px}th{color:var(--fg2);font-weight:500;text-align:left;padding:8px 10px;border-bottom:1px solid var(--line)}
 td{padding:9px 10px;border-bottom:1px solid var(--line);vertical-align:middle}tr:last-child td{border-bottom:0}
 td.n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}td{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .chip{display:inline-block;padding:2px 9px;border-radius:999px;font-size:12px;font-weight:500;background:var(--glass2);border:1px solid var(--line);color:var(--fg2)}
@@ -70,7 +69,7 @@ label .k,.fld .k{display:block;margin-bottom:4px}
 .toast{margin-left:10px;padding:3px 9px;border-radius:999px;background:rgba(0,122,255,.14);color:var(--blue);cursor:pointer;max-width:52vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .fld{display:flex;flex-direction:column}
 .log{font:12.5px/1.6 ui-monospace,"SF Mono",Menlo,monospace;max-height:520px;overflow:auto;white-space:pre-wrap}
-.log .t{color:var(--fg3)}.err{color:var(--red)}.warn{color:var(--orange)}
+.log .t{color:var(--fg3)}.err{color:var(--red)}.warn{color:var(--orange)}.mut{color:var(--fg2)}
 .inflight{height:232px;overflow:auto;overscroll-behavior:contain;margin-top:4px}.inflight li{display:grid;grid-template-columns:minmax(0,1fr) 64px 72px 56px;gap:10px;align-items:center;height:36px;padding:0;border-bottom:1px solid var(--line);font-size:13.5px}
 .inflight li:last-child{border-bottom:0}.inflight .nm{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.inflight ul{list-style:none;margin:0;padding:0}
 .stage{font-size:12px;color:var(--blue);font-weight:500;white-space:nowrap}.mono{font-variant-numeric:tabular-nums;color:var(--fg2);font-size:12.5px;text-align:right;white-space:nowrap}
@@ -101,7 +100,7 @@ th:nth-child(8),td:nth-child(8){width:132px}   /* 一行两个按钮各 57px;原
   /* 表格 → 卡片 */
   table,thead,tbody,tr,td{display:block}thead{display:none}
   tr{display:flex;flex-wrap:wrap;gap:2px 14px;border-bottom:1px solid var(--line);padding:9px 0}tr:last-child{border-bottom:0}
-  td{border:0;padding:0;white-space:normal;overflow:visible;font-size:13px}td.n{flex:1 0 100%;white-space:normal;word-break:break-all;font-weight:500;font-size:13.5px;margin-bottom:2px}td.err{flex:1 0 100%}
+  td{border:0;padding:0;white-space:normal;overflow:visible;font-size:13px}td.n{flex:1 0 100%;white-space:normal;word-break:break-all;font-weight:500;font-size:13.5px;margin-bottom:2px}td.err,td.mut{flex:1 0 100%}
   td[data-l]::before{content:attr(data-l) " ";color:var(--fg2);font-size:12px}
   td:empty{display:none}
   /* 设置表单单列 */
@@ -111,7 +110,7 @@ th:nth-child(8),td:nth-child(8){width:132px}   /* 一行两个按钮各 57px;原
 }
 @media (max-width:400px){.g7{grid-template-columns:repeat(3,1fr)}}
 
-/* ---- 手机 第三轮:顶栏两行、胶囊状态、设置密度、图表可读、长串横滑 ---- */
+/* ---- 手机 第三轮:顶栏两行、胶囊状态、设置密度、长串横滑 ---- */
 @media (max-width:640px){
   header{flex-wrap:wrap;row-gap:8px;padding:10px 12px}
   header h1{flex:1 0 auto}header .status{order:1}header .sub.phase{order:2;flex:1 0 100%;display:block;min-width:0}
@@ -128,10 +127,6 @@ th:nth-child(8),td:nth-child(8){width:132px}   /* 一行两个按钮各 57px;原
   td.n{font-size:13px;word-break:normal}td.n.open{white-space:normal;word-break:break-all}
   code.long{display:block;word-break:break-all;white-space:normal;font-size:11.5px}
   body{overflow-x:hidden}main,section,.card,tr,td,li{min-width:0}
-  /* 图表:横滑卡片 */
-  section.g2.charts{display:flex;overflow-x:auto;scroll-snap-type:x mandatory;gap:10px;padding-bottom:4px}
-  section.g2.charts>.card{flex:0 0 88%;scroll-snap-align:start}
-  section.g2.charts canvas{height:150px!important}
 }
 @media (prefers-reduced-transparency:reduce){.glass{background:var(--bg2);backdrop-filter:none;-webkit-backdrop-filter:none}.mesh{display:none}}
 @media (prefers-reduced-motion:reduce){*{transition:none!important}}
@@ -153,11 +148,12 @@ th:nth-child(8),td:nth-child(8){width:132px}   /* 一行两个按钮各 57px;原
 <main>
   <section class="card glass">
     <div class="grid" style="grid-template-columns:1fr 1fr;gap:18px">
-      <div><div class="row"><span class="k">提取进度</span><span class="hint">{{ fmt(s.extracted_total) }} / {{ fmt(s.total) }}</span><span class="sp"></span><b class="pct">{{ num(s.extract_pct) }}%</b></div>
-        <div class="progress"><i :style="{width:num(s.extract_pct)+'%'}"></i></div><div class="hint">{{ num(s.rate_per_min) }} 条/分 · 预计剩余 {{ eta }}</div></div>
-      <div><div class="row"><span class="k">入库进度</span><span class="hint">{{ fmt(s.ingested_total) }} / {{ fmt(s.total) }}</span><span class="sp"></span><b class="pct">{{ num(s.ingest_pct) }}%</b></div>
-        <div class="progress green"><i :style="{width:num(s.ingest_pct)+'%'}"></i></div><div class="hint">已提取待入库 {{ fmt((s.counts.extracted||0)+(s.counts.feeding||0)) }} · 失败 {{ fmt(s.counts.failed||0) }}</div></div>
+      <div><div class="row"><span class="k">媒体信息</span><span class="hint">本轮 {{ fmt(rd.mi_total-rd.mi_left) }} / {{ fmt(rd.mi_total) }}</span><span class="sp"></span><b class="pct">{{ num(rd.mi_pct) }}%</b></div>
+        <div class="progress"><i :style="{width:num(rd.mi_pct)+'%'}"></i></div><div class="hint">{{ num(s.rate_per_min) }} 条/分 · 预计剩余 {{ eta }} · 待入库 {{ fmt((s.counts.extracted||0)+(s.counts.feeding||0)) }}</div></div>
+      <div><div class="row"><span class="k">封面截图</span><span class="hint">本轮 {{ fmt(rd.th_total-rd.th_left) }} / {{ fmt(rd.th_total) }}</span><span class="sp"></span><b class="pct">{{ num(rd.th_pct) }}%</b></div>
+        <div class="progress green"><i :style="{width:num(rd.th_pct)+'%'}"></i></div><div class="hint">{{ s.capture_mode==='off'?'截图已关闭,不计入本轮':('待截 '+fmt((s.thumb||{}).pending||0)+' · 待入库 '+fmt(((s.thumb||{}).captured||0)+((s.thumb||{}).feeding||0))+' · 失败 '+fmt((s.thumb||{}).failed||0)) }}</div></div>
     </div>
+    <p class="hint" style="margin:10px 0 0">本轮自 {{ rd.at? new Date(rd.at*1000).toLocaleString():'—' }} 同步 Emby 库起算,总进度 <b>{{ num(rd.pct) }}%</b>(剩 {{ fmt(rd.left) }} / {{ fmt(rd.total) }})· 下次自动同步 {{ nextSync }}</p>
     <div class="grid g7" style="margin-top:14px">
       <div v-for="k in order" :key="k"><div class="k">{{ label[k] }}</div><div class="v" :style="{color:colorOf(k)}">{{ fmt(s.counts[k]||0) }}</div></div>
     </div>
@@ -190,10 +186,6 @@ th:nth-child(8),td:nth-child(8){width:132px}   /* 一行两个按钮各 57px;原
 
   <div class="row tabs"><div class="seg"><button v-for="t in tabs" :key="t" :class="{on:tab===t}" @click="go(t)">{{ tabName[t] }}</button></div></div>
 
-  <section v-show="tab==='charts'" class="grid g2 charts">
-    <div class="card glass" v-for="c in chartDefs" :key="c.id"><div class="k">{{ c.title }}</div><canvas :id="c.id" height="120"></canvas></div>
-  </section>
-
   <section v-show="tab==='items'" class="card glass">
     <div class="row" style="margin-bottom:10px">
       <select v-model="f.status" @change="page=1;load()"><option value="">全部状态</option><option v-for="k in order" :value="k">{{ label[k] }}</option></select>
@@ -204,13 +196,13 @@ th:nth-child(8),td:nth-child(8){width:132px}   /* 一行两个按钮各 57px;原
       <span class="sp"></span><span class="hint">{{ fmt(list.total) }} 条 · 第 {{ page }}/{{ Math.max(1,Math.ceil(list.total/50)) }} 页</span>
       <span class="pager"><button class="btn soft" :disabled="page<=1" @click="page>1&&(page--,load())">‹</button> <button class="btn soft" :disabled="page*50>=list.total" @click="(page*50<list.total)&&(page++,load())">›</button></span>
     </div>
-    <table><thead><tr><th>Id</th><th>类型</th><th>文件</th><th>状态</th><th>流/章</th><th>探测</th><th>错误</th><th></th></tr></thead>
-    <tbody><tr v-if="!list.items.length"><td colspan="8" class="mut" style="text-align:center;padding:26px">{{ f.status||f.q? '没有符合条件的条目':'还没有待办条目 —— 先在设置页点「同步待办清单」' }}</td></tr>
+    <table><thead><tr><th>Id</th><th>类型</th><th>文件</th><th>状态</th><th>流/章</th><th>探测</th><th>说明</th><th></th></tr></thead>
+    <tbody><tr v-if="!list.items.length"><td colspan="8" class="mut" style="text-align:center;padding:26px">{{ f.status||f.q? '没有符合条件的条目':'还没有待办条目 —— 先点顶部「同步 Emby 库」' }}</td></tr>
     <tr v-for="it in list.items" :key="it.id">
       <td class="mono" data-l="Id">{{ it.id }}</td><td data-l="类型">{{ it.kind }}</td><td class="n" :class="{open:openId===it.id}" :title="(it.name? it.name+' — ':'')+it.target" @click="openId=openId===it.id?null:it.id">{{ base(it.target) }}</td>
-      <td data-l="状态"><span class="chip" :class="it.status">{{ label[it.status]||it.status }}</span><span v-if="it.attempts" class="mono"> ×{{ it.attempts }}</span></td>
+      <td data-l="状态"><span class="chip" :class="it.status">{{ label[it.status]||it.status }}</span><span v-if="it.attempts" class="mono"> ×{{ it.attempts }}</span><span v-if="it.thumb&&it.thumb!=='none'" class="chip" :class="{done:it.thumb==='done',failed:it.thumb==='failed',feeding:it.thumb==='feeding'}" style="margin-left:4px" :title="it.thumb_err||''">封面{{ {pending:'待截',captured:'已截',feeding:'入库中',done:'✓',failed:'失败'}[it.thumb]||it.thumb }}</span></td>
       <td class="mono" :data-l="it.streams!=null?'流':null">{{ it.streams??'' }}<span v-if="it.chapters" class="mut"> · {{ it.chapters }} 章</span></td><td class="mono" :data-l="it.probe_ms?'探测':null">{{ it.probe_ms? it.probe_ms+'ms':'' }}</td>
-      <td class="err" style="max-width:320px;font-size:12.5px" :data-l="it.error?'错误':null">{{ it.error }}</td>
+      <td :class="['done','skipped'].includes(it.status)?'mut':'err'" style="max-width:320px;font-size:12.5px" :data-l="it.error?(['done','skipped'].includes(it.status)?'说明':'错误'):null">{{ it.error }}</td>
       <td><button class="btn soft" v-if="['failed','skipped'].includes(it.status)" @click="retry(it.id)">重试</button><button class="btn soft" v-if="it.ext!=='.iso'" :disabled="capBusy===it.id" :title="'截图: '+(it.thumb||'none')+(it.thumb_err?' · '+it.thumb_err:'')" @click="cap(it.id)">{{ capBusy===it.id?'截图中…':({done:'已截',captured:'待入库',feeding:'入库中',failed:'重截'}[it.thumb]||'截图') }}</button></td>
     </tr></tbody></table>
   </section>
@@ -274,25 +266,26 @@ th:nth-child(8),td:nth-child(8){width:132px}   /* 一行两个按钮各 57px;原
   <section v-show="tab==='log'" class="card glass log"><div v-for="e in events" :key="e.id"><span class="t">{{ ts(e.ts) }}</span> <span :class="e.level==='error'?'err':e.level==='warn'?'warn':''">{{ e.level }}</span> {{ e.msg }}</div></section>
 </main></div>
 <script>
-const {createApp}=Vue; const CH={}; let SPARK=null;
+const {createApp}=Vue; let SPARK=null;
 createApp({
-  data(){return{s:{counts:{},breaker:{},last_feed:{},cookie:{},net:{mbps:0,hist:[],total_rx:0},inflight:[]},tab:'charts',tabs:['charts','items','settings','log'],
-    tabName:{charts:'趋势',items:'条目',settings:'设置',log:'日志'},
+  data(){return{s:{counts:{},breaker:{},last_feed:{},cookie:{},net:{mbps:0,hist:[],total_rx:0},inflight:[]},tab:'items',tabs:['items','settings','log'],
+    tabName:{items:'条目',settings:'设置',log:'日志'},
     order:['pending','probing','extracted','feeding','done','skipped','failed'],
     label:{pending:'待处理',probing:'探测中',extracted:'已提取',feeding:'喂回中',done:'完成',skipped:'跳过',failed:'失败'},
-    chartDefs:[{id:'c1',key:'done',title:'完成数(6 小时)',color:'#30d158'},{id:'c2',key:'emby_latency',title:'Emby 接口延迟(秒)',color:'#ff9f0a'},{id:'c3',key:'net_mbps',title:'提取网速(Mb/s)',color:'#0a84ff'},{id:'c4',key:'probe_p50_ms',title:'ffprobe p50(ms)',color:'#bf5af2'}],
     f:{status:'',q:''},openId:null,page:1,list:{total:0,items:[]},st:{},groups:{},clamps:{},msg:'',events:[],ck:{},newCookie:'',ckMsg:'',ckMsgErr:false,hc:null,et:null,pc:{},
     capBusy:0, pw:{old:'',new1:'',new2:''},
     captureModes:[{v:'off',t:'关闭',d:'不截图'},{v:'with_probe',t:'与媒体信息一起',d:'探测完顺手截一帧,省一次取直链;媒体信息入库会慢一倍'},{v:'after',t:'媒体信息跑完后',d:'待处理清空后自动开始,只对缺封面的剧集/电影截'}],
     longKeys:['user_agent','library_db','strm_root','mediainfo_root','remote_dir','remote_library_db','remote_strm_root','remote_mediainfo_root','ssh_key','strm_115_prefix','cd2_115_root','emby_url','emby_api_key','emby_user_id','exclude_exts'],
     pathLabel:{library_db:'library.db',strm_root:'strm 目录',mediainfo_root:'媒体信息目录',cd2_115_root:'115 挂载'},
     ph:{strm_115_prefix:'/mnt/cloud/115',remote_library_db:'/config/data/library.db',remote_strm_root:'/mnt/media/strm',remote_mediainfo_root:'/mnt/media/mediainfo',ssh_host:'IP 或域名'},
-    sdesc:{probe_workers:'ffprobe 并发(=115 下载并发)',api_interval:'115 API 最小间隔(秒)',url_batch:'每批条目数',probe_timeout:'ffprobe 超时(秒)',feed_batch:'攒多少条入库一次',feed_interval:'最多隔多少秒入库一次',refresh_interval:'逐条刷新间隔(秒)',latency_threshold:'Emby 延迟阈值(秒,超过暂停入库)',dir_cache_ttl:'115 目录缓存 TTL(秒)',max_retries:'最大重试',worklist_sync_hours:'待办清空后自动同步间隔(小时,0=不自动)',user_agent:'User-Agent',
+    sdesc:{probe_workers:'ffprobe 并发(=115 下载并发)',api_interval:'115 API 最小间隔(秒)',url_batch:'每批条目数',probe_timeout:'ffprobe 超时(秒)',feed_batch:'攒多少条入库一次',feed_interval:'最多隔多少秒入库一次',refresh_interval:'逐条刷新间隔(秒)',latency_threshold:'Emby 延迟阈值(秒,超过暂停入库)',dir_cache_ttl:'115 目录缓存 TTL(秒)',max_retries:'最大重试',worklist_sync_hours:'自动同步 Emby 库的间隔(小时,到点就同步;0=不自动)',user_agent:'User-Agent',
       emby_api_key:'Emby API key',emby_user_id:'Emby 用户 Id(测试连接后点选)',emby_strm_prefix:'Emby 库里 strm 路径前缀',emby_url:'Emby 地址(远程模式填从 Emby 主机访问的地址)',library_db:'library.db(容器内路径)',strm_root:'strm 目录(容器内路径)',mediainfo_root:'媒体信息目录(容器内路径)',
       ssh_host:'SSH 主机',ssh_port:'SSH 端口',ssh_user:'SSH 用户',ssh_key:'私钥路径',remote_dir:'对端工作目录',remote_library_db:'对端 library.db',remote_strm_root:'对端 strm 目录',remote_mediainfo_root:'对端媒体信息目录',
       strm_115_prefix:'strm 内容里 115 根目录前缀',cd2_115_root:'115 挂载(容器内,仅 ISO)',exclude_exts:'跳过的容器后缀(逗号分隔)',
       capture_mode:'截图模式:off / with_probe(与媒体信息一起) / after(媒体信息跑完后)',capture_position:'截图位置(时长百分比)',capture_hdr_tonemap:'HDR 转 SDR 色调映射(1=开)',capture_quality:'JPEG 质量(1 最好~5)',capture_backdrop:'电影缺海报时截图同时作背景图(仅当没背景图;同神医,剧集不生成;1=开)',capture_pick_best:'在那一秒里抓 24 帧挑一张(= Emby 原生/神医的做法,用 ffmpeg 的 thumbnail 滤镜,一次解码;1=开)',trust_proxy:'套了反代才开:按 X-Forwarded-For 最后一跳认来源(1=开;没反代开了等于谁都能伪造来源绕过登录限流;套了两层如 CDN→nginx 取到的是 CDN 的 IP,仍会所有人共用一个限流桶)',capture_avoid_dark:'撞上黑场/暗场就往后再试两个位置(神医没有这一步,想完全对齐就关掉;1=开)'}}},
   computed:{
+    rd(){return this.s.round||{mi_total:0,mi_left:0,th_total:0,th_left:0,total:0,left:0,pct:0,mi_pct:0,th_pct:0,at:null}},
+    nextSync(){if(this.st.worklist_sync_hours===undefined)return '—';const h=Number(this.st.worklist_sync_hours||0);if(!h)return '已关闭';if(!this.s.last_sync_at)return '—';const t=this.s.last_sync_at*1000+h*3600e3;return t<Date.now()?'即将':new Date(t).toLocaleString()},
     thumbShot(){const t=this.s.thumb||{};return (t.captured||0)+(t.feeding||0)+(t.done||0)},
     eta(){const e=this.s.eta_seconds;if(!e)return'—';const d=Math.floor(e/86400),h=Math.floor(e%86400/3600),m=Math.floor(e%3600/60);return d?`${d}天${h}小时`:h?`${h}小时${m}分`:`${m}分`},
     statusText(){return this.s.breaker.tripped?'熔断':this.s.paused?'已暂停':(this.s.cookie&&this.s.cookie.ok===false)?'Cookie 无效':'运行中'},
@@ -353,16 +346,11 @@ createApp({
     async saveCookie(){try{const r=await this.api('cookie',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({cookie:this.newCookie})});this.ckMsg=`已切换到账号 ${r.user_id}(VIP ${r.vip})`;this.ckMsgErr=false;this.newCookie='';this.loadCookie()}catch(e){this.ckMsg=e.message;this.ckMsgErr=true}},
     base(p){return (p||'').split('/').pop()},ts(t){return new Date(t*1000).toLocaleString()},
     spark(){const c=this.$refs.spark;if(!c)return;const h=this.s.net.hist||[];const ctx=c.getContext('2d');const W=c.width,H=c.height;ctx.clearRect(0,0,W,H);if(h.length<2)return;const max=Math.max(1,...h.map(x=>x[1]));ctx.beginPath();h.forEach((x,i)=>{const px=i/(h.length-1)*W,py=H-2-(x[1]/max)*(H-4);i?ctx.lineTo(px,py):ctx.moveTo(px,py)});ctx.strokeStyle='#0a84ff';ctx.lineWidth=1.5;ctx.stroke()},
-    mk(c){const grid=getComputedStyle(document.documentElement).getPropertyValue('--line').trim();const tick=getComputedStyle(document.documentElement).getPropertyValue('--fg2').trim();
-      return new Chart(document.getElementById(c.id),{type:'line',data:{labels:[],datasets:[{data:[],borderColor:c.color,backgroundColor:c.color+'22',fill:true,pointRadius:0,tension:.35,borderWidth:1.8}]},
-        options:{animation:false,plugins:{legend:{display:false}},scales:{x:{ticks:{color:tick,maxTicksLimit:5,font:{size:window.innerWidth<640?12:11}},grid:{color:grid}},y:{ticks:{color:tick,font:{size:window.innerWidth<640?12:11}},grid:{color:grid},beginAtZero:true}}}})},
-    async charts$(){for(const c of this.chartDefs){const ch=CH[c.id];if(!ch)continue;const d=await this.api(`metrics?key=${c.key}&hours=6`);ch.data.labels=d.map(x=>new Date(x.ts*1000).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}));ch.data.datasets[0].data=d.map(x=>x.value);ch.update()}}
   },
   async mounted(){
-    for(const c of this.chartDefs)CH[c.id]=this.mk(c);
-    setInterval(()=>{if(!document.hidden)this.tick()},2000);setInterval(()=>{if(!document.hidden)this.charts$()},30000);   // 先装定时器:容器还在启动时打开页面也能自己恢复
-    document.addEventListener('visibilitychange',()=>{if(!document.hidden){this.tick();this.charts$()}});
+    setInterval(()=>{if(!document.hidden)this.tick()},2000);   // 先装定时器:容器还在启动时打开页面也能自己恢复
+    document.addEventListener('visibilitychange',()=>{if(!document.hidden)this.tick()});
     const safe=async(f,what)=>{try{await f()}catch(e){this.msg=what+'失败: '+e.message}};
-    await safe(()=>this.tick(),'读状态');await safe(()=>this.loadSettings(),'读设置');await safe(()=>this.charts$(),'读图表');await safe(()=>this.loadCookie(),'读 cookie')}
+    await safe(()=>this.tick(),'读状态');await safe(()=>this.loadSettings(),'读设置');await safe(()=>this.load(),'读条目');await safe(()=>this.loadCookie(),'读 cookie')}
 }).mount('#app');
 </script></body></html>
