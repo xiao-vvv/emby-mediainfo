@@ -751,8 +751,14 @@ class Pipeline:
             self.feed_hold = min(1800, (getattr(self, 'feed_hold', 0) or 150) * 2)
             self.feed_hold_until = time.time() + self.feed_hold
             db.log('warn', f"{res.get('note') or 'Emby 暂时吃不进刷新'},{self.feed_hold // 60} 分钟后再试(探路预算 {int(self.canary_budget())}s;停泊的条目一旦被 Emby 消化会立刻解除退避)")
-        elif res.get('done') or res.get('skipped'):
-            self.feed_hold = 0; self.feed_hold_until = 0      # 只要有产出就把退避清零,别让它一直涨着
+        elif res.get('done') or res.get('thumb_done'):
+            self.feed_hold = 0; self.feed_hold_until = 0      # 只要有产出就把退避清零,别让它一直涨着(skipped 不算产出:那只是 Emby 本来就有)
+        elif thumb_ids and not fed and (res.get('thumb_unverified') or res.get('thumb_deferred')):
+            # 只送了截图、一张都没被 Emby 认下(刷新还在它队列里排着):别立刻原样再送 —— 截图关掉后管线彻底空闲,
+            #   feed_loop 每 5 秒就会把同样 8 张图再打包、再 SFTP、再刷新一遍(10-17 实测 90 秒一轮,直到把重试次数耗光)
+            self.feed_hold = min(1800, (getattr(self, 'feed_hold', 0) or 150) * 2)
+            self.feed_hold_until = time.time() + self.feed_hold
+            db.log('info', f'本批只有截图且暂未被 Emby 认下({len(thumb_ids)} 张,刷新还在排队),{self.feed_hold // 60} 分钟后再送')
 
         back = [int(i) for i in res.get('unverified', []) if int(i) in fed]
         if back:
