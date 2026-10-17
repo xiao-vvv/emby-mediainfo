@@ -197,7 +197,7 @@ th:nth-child(8),td:nth-child(8){width:132px}   /* 一行两个按钮各 57px;原
       <span class="pager"><button class="btn soft" :disabled="page<=1" @click="page>1&&(page--,load())">‹</button> <button class="btn soft" :disabled="page*50>=list.total" @click="(page*50<list.total)&&(page++,load())">›</button></span>
     </div>
     <table><thead><tr><th>Id</th><th>类型</th><th>文件</th><th>状态</th><th>流/章</th><th>探测</th><th>说明</th><th></th></tr></thead>
-    <tbody><tr v-if="!list.items.length"><td colspan="8" class="mut" style="text-align:center;padding:26px">{{ f.status||f.q? '没有符合条件的条目':'还没有待办条目 —— 先点顶部「同步 Emby 库」' }}</td></tr>
+    <tbody><tr v-if="!list.items.length"><td colspan="8" class="mut" style="text-align:center;padding:26px">{{ listLoading? '加载中…':(f.status||f.q? '没有符合条件的条目':'还没有待办条目 —— 先点顶部「同步 Emby 库」') }}</td></tr>
     <tr v-for="it in list.items" :key="it.id">
       <td class="mono" data-l="Id">{{ it.id }}</td><td data-l="类型">{{ it.kind }}</td><td class="n" :class="{open:openId===it.id}" :title="(it.name? it.name+' — ':'')+it.target" @click="openId=openId===it.id?null:it.id">{{ base(it.target) }}</td>
       <td data-l="状态"><span class="chip" :class="it.status">{{ label[it.status]||it.status }}</span><span v-if="it.attempts" class="mono"> ×{{ it.attempts }}</span><span v-if="it.thumb&&it.thumb!=='none'" class="chip" :class="{done:it.thumb==='done',failed:it.thumb==='failed',feeding:it.thumb==='feeding'}" style="margin-left:4px" :title="it.thumb_err||''">封面{{ {pending:'待截',captured:'已截',feeding:'入库中',done:'✓',failed:'失败'}[it.thumb]||it.thumb }}</span></td>
@@ -272,7 +272,7 @@ createApp({
     tabName:{items:'条目',settings:'设置',log:'日志'},
     order:['pending','probing','extracted','feeding','done','skipped','failed'],
     label:{pending:'待处理',probing:'探测中',extracted:'已提取',feeding:'喂回中',done:'完成',skipped:'跳过',failed:'失败'},
-    f:{status:'',q:''},openId:null,page:1,list:{total:0,items:[]},st:{},groups:{},clamps:{},msg:'',events:[],ck:{},newCookie:'',ckMsg:'',ckMsgErr:false,hc:null,et:null,pc:{},
+    f:{status:'',q:''},openId:null,page:1,list:{total:0,items:[]},listLoading:false,st:{},groups:{},clamps:{},msg:'',events:[],ck:{},newCookie:'',ckMsg:'',ckMsgErr:false,hc:null,et:null,pc:{},
     capBusy:0, pw:{old:'',new1:'',new2:''},
     captureModes:[{v:'off',t:'关闭',d:'不截图'},{v:'with_probe',t:'与媒体信息一起',d:'探测完顺手截一帧,省一次取直链;媒体信息入库会慢一倍'},{v:'after',t:'媒体信息跑完后',d:'待处理清空后自动开始,只对缺封面的剧集/电影截'}],
     longKeys:['user_agent','library_db','strm_root','mediainfo_root','remote_dir','remote_library_db','remote_strm_root','remote_mediainfo_root','ssh_key','strm_115_prefix','cd2_115_root','emby_url','emby_api_key','emby_user_id','exclude_exts'],
@@ -304,7 +304,7 @@ createApp({
       catch(e){this.msg='操作失败: '+e.message}
       this.tick();this.loadSettings();if(reload){await new Promise(r=>setTimeout(r,600));this.load()}},
     go(t){this.tab=t;if(t==='items')this.load();if(t==='settings'){this.loadCookie();this.api('paths/check').then(r=>this.pc=r)}if(t==='log')this.tick()},
-    async load(){const q=new URLSearchParams({status:this.f.status,q:this.f.q,page:this.page});this.list=await this.api('items?'+q)},
+    async load(){const q=new URLSearchParams({status:this.f.status,q:this.f.q,page:this.page});this.listLoading=true;try{this.list=await this.api('items?'+q)}finally{this.listLoading=false}},   // 全库 160 万行时这一查要 3 秒多,期间别把空表说成「还没有待办条目」
     async retry(id){await this.api(`items/${id}/retry`,{method:'POST'});this.load()},
     async setCap(v){const old=this.st.capture_mode;this.st.capture_mode=v;
       try{await this.saveSettings()}catch(e){this.st.capture_mode=old;this.msg='截图模式没保存成功: '+e.message}},
